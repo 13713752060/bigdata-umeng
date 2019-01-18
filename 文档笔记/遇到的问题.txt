@@ -1,0 +1,24 @@
+#### 需要解决的问题。
+1、flume收集kafka的日志到hdfs中，有些数据收集不到，且 .tmp 的文件会一直存在。
+2、flume收集日志是否需要搭建集群？
+3、通过cron 定时将hdfs 的结构化数据导入到hive仓库的过程中，只有error,startup 日志成功，其他三个没有数据。
+4、导入数据到hive仓库，如果包含 .tmp 文件，则会操作失败。
+
+5、自定义日期的UDF 还未完成。 （2019.1.10 finished）
+
+上传jar 包到hdfs
+删除自定义函数：
+
+
+创建永久函数
+create function formattime as 'com.bd19liu.udf.FormatTimeUDF' using jar 'hdfs://master:9000/user/udf-jar/app-log-hive-1.0.jar';
+create function getmonthbegin as 'com.bd19liu.udf.MonthBeginUDF' using jar 'hdfs://master:9000/user/udf-jar/app-log-hive-1.0.jar';
+create function getdaybegin as 'com.bd19liu.udf.DayBeginUDF' using jar 'hdfs://master:9000/user/udf-jar/app-log-hive-1.0.jar';
+create function getweekbegin as 'com.bd19liu.udf.WeekBeginUDF' using jar 'hdfs://master:9000/user/udf-jar/app-log-hive-1.0.jar';
+
+
+#### 2019-01-11
+- 完成day04的内容
+----- 完成可视化项目的搭建
+----- dubbo 整合 SSM
+----- 基本指标统计

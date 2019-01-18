@@ -1,0 +1,353 @@
+角色
+--------------
+	1.App开发商
+		每个开发商可以有多个App产品
+	2.App软件
+	3.数据服务平台提供商
+		Umeng，
+		向App开发商提供服务。提供App使用情况的统计服务。
+	4.SDK
+		数据服务平台提供商提供给App开发商的软件包。
+		内置log上报程序。
+	5.用户
+		每个使用App的设备。
+	6.租户
+		购买了数据服务平台提供商服务的App开发商。
+
+
+业务术语
+-----------------
+	1.用户
+		设备id,唯一性
+
+	2.新增用户
+		首次打开应用的用户。
+		卸载再安装不是新增
+
+	3.活跃用户
+		指定时间段内打开过app的用户即为活跃用户。多次打开算一次。
+
+	4.月活率
+		活跃用户 / 截止到当月累计用户总数。
+
+	5.沉默用户
+		两天时间没有启动过app的用户就算沉默用户。
+
+	6.版本分布
+		计算各版本的新增用户、活跃用户、启动次数。
+
+	7.本周回流用户
+		上周没启动，本周启动的用户
+
+	8.连续n周活跃用户
+		联系n周，每周至少启动一次。
+
+	9.忠诚用户
+		连续5周以上活跃用户
+
+	10.连续活跃用户
+		连续2周以上
+
+	11.近期流失用户
+		连续n(2<= n <= 4)周没有启动应用的用户。
+
+	12.留存用户
+		某段时间内的新增用户，在经过一段时间后，仍然使用app的用户。
+
+	13.用户新鲜度
+		每天启动app的新老用户比例
+
+	14.单次使用时长
+		每次启动使用的时间长度。
+
+	15.日使用时长
+		每天的使用累加值。
+
+	16.启动次数计算标准
+		两次之间<30m.
+
+
+业务介绍
+---------------
+
+上报的日志分为5个方面
+------------------------
+	1.appStartupLogs
+		启动日志
+	2.appPageLogs
+		页面访问日志
+	3.appEventLogs
+		用户事件日志
+	4.appUsageLogs
+		用户使用日志
+	5.appErrorLogs
+		错误日志。
+
+
+创建公共模块
+-------------------
+	1.模块名字app-analyze-common,添加pom.xml的maven支持
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-analyze-common</artifactId>
+			<version>1.0-SNAPSHOT</version>
+		</project>
+
+	2.创建Log实体类
+		com.it18zhang.app.common.AppBaseLog
+		com.it18zhang.app.common.AppErrorLog
+		com.it18zhang.app.common.AppEventLog
+		com.it18zhang.app.common.AppLogEntity
+		com.it18zhang.app.common.AppPageLog
+		com.it18zhang.app.common.AppStartupLog
+		com.it18zhang.app.common.AppUsageLog
+
+初始化web收集日志程序
+----------------------
+	1.创建新项目big5-project-umeng
+	2.创建web模块
+		app-logs-collect-web
+	3.添加pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-collect-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-core</artifactId>
+					<version>2.8.8</version>
+				</dependency>
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-databind</artifactId>
+					<version>2.8.3</version>
+				</dependency>
+
+				<dependency>
+					<groupId>com.maxmind.db</groupId>
+					<artifactId>maxmind-db</artifactId>
+					<version>1.0.0</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.5.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>com.it18zhang</groupId>
+					<artifactId>app-analyze-common</artifactId>
+					<version>1.0-SNAPSHOT</version>
+				</dependency>
+			</dependencies>
+		</project>
+	4.配置web.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+				 version="3.1">
+			<servlet>
+				<servlet-name>controller</servlet-name>
+				<servlet-class>org.springframework.web.servlet.DispatcherServlet
+				</servlet-class>
+			</servlet>
+			<servlet-mapping>
+				<servlet-name>controller</servlet-name>
+				<url-pattern>/</url-pattern>
+			</servlet-mapping>
+		</web-app>
+
+	5.创建java包
+		com.it18zhang.applogs.collect.web.controller
+
+	6.配置web-inf/controller-servetl.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xmlns:mvc="http://www.springframework.org/schema/mvc"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+								http://www.springframework.org/schema/beans/spring-beans.xsd
+								http://www.springframework.org/schema/mvc
+								http://www.springframework.org/schema/mvc/spring-mvc-4.3.xsd
+								http://www.springframework.org/schema/context
+								http://www.springframework.org/schema/context/spring-context-4.3.xsd">
+			<!-- 配置扫描路径 -->
+			<context:component-scan
+					base-package="com.it18zhang.applogs.collect.web.controller"/>
+			<!-- 使用注解驱动 -->
+			<mvc:annotation-driven/>
+			<!-- 内部资源视图解析器 -->
+			<bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+				<property name="prefix" value="/views"/>
+				<property name="suffix" value=".jsp"/>
+			</bean>
+			<!-- 此处乃进行json数据传输的关键,当配置 -->
+			<bean id="jsonMapping"  class="org.springframework.http.converter.json.MappingJackson2HttpMessageConverter"/>
+			<bean class="org.springframework.web.servlet.mvc.annotation.AnnotationMethodHandlerAdapter">
+				<property name="messageConverters">
+					<list>
+						<ref bean="jsonMapping"/>
+					</list>
+				</property>
+			</bean>
+		</beans>
+
+	7.引入公共模块
+		7.1)项目结构 -> module ->dependencies -> + -> 模块依赖
+		7.2)在artifacts中添加公共模块的输出
+			项目结构 -> artifacts -> 选中模块 -> output layout -> 从available elements的公共模块 ->右键 -> put into web-inf ...
+
+	8.创建Controller.java
+		package com.it18zhang.applogs.collect.web.controller;
+
+		import com.it18zhang.app.common.AppLogEntity;
+		import org.springframework.stereotype.Controller;
+		import org.springframework.web.bind.annotation.RequestBody;
+		import org.springframework.web.bind.annotation.RequestMapping;
+		import org.springframework.web.bind.annotation.RequestMethod;
+		import org.springframework.web.bind.annotation.ResponseBody;
+
+		import javax.servlet.http.HttpServletRequest;
+
+		/**
+		 */
+		@Controller()
+		@RequestMapping("/coll")
+		public class CollectLogController {
+
+			@RequestMapping(value = "/index", method = RequestMethod.POST)
+			@ResponseBody
+			public AppLogEntity collect(@RequestBody AppLogEntity e, HttpServletRequest req) {
+
+				System.out.println("kkkkk");
+				String clientTime = req.getHeader("clientTime");
+				//结算时间差
+				long diff = Long.parseLong(clientTime) - System.currentTimeMillis();
+
+				//校对时间并设置头
+				System.out.println("hello world");
+				return e;
+			}
+		}
+
+
+模拟手机程序上报日志
+---------------------
+	1.创建模块app-logs-phone
+
+	2.创建Phone
+		package com.it18zhang.app.client;
+
+		import java.io.InputStream;
+		import java.io.OutputStream;
+		import java.net.HttpURLConnection;
+		import java.net.MalformedURLException;
+		import java.net.URL;
+
+		/**
+		 * 模拟手机上报日志程序
+		 */
+		public class Phone {
+
+			public static void main(String[] args) throws Exception {
+				//输入流
+				InputStream in = ClassLoader.getSystemResourceAsStream("log.json");
+
+				URL url = new URL("http://localhost:8080/coll/index");
+				HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+				//设置请求方式为post
+				conn.setRequestMethod("POST");
+				//允许上传数据
+				conn.setDoOutput(true);
+				//设置请求的头信息,设置内容类型
+				conn.setRequestProperty("Content-Type","application/json");
+
+				//输出流
+				OutputStream out = conn.getOutputStream();
+				byte[] buf = new byte[1024] ;
+				int len = -1 ;
+				while((len = in.read(buf)) != -1){
+					out.write(buf,0,len);
+				}
+				out.flush();
+				out.close();
+				in.close();
+				int code = conn.getResponseCode();
+				System.out.println(code);
+
+			}
+		}
+
+使用firefox浏览器，可以方便测试web程序，尤其是post方式
+------------------------------------------------------
+	1.安装firefox
+	2.安装poster插件
+
+创建数据生成器,模拟大量日志
+---------------------------
+	1.在app-logs-phone模块中添加alibaba的fastjson
+	2.pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-phone</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>fastjson</artifactId>
+					<version>1.2.24</version>
+				</dependency>
+			</dependencies>
+		</project>
+
+	3.TestGenData.java
+
+
+服务器端需要和client进行时钟校对，
+--------------------------------
+	1.client
+		发送数据同时，写入clientTime头。
+		conn.setRequestProperty("clientTime",System.currentTimeMillis() + "");
+	2.web server
+		//server时间
+		long myTime = System.currentTimeMillis() ;
+		//客户端时间
+		long clientTime = Long.parseLong(req.getHeader("clientTime"));
+		//时间校对
+		long diff = myTime - clientTime ;
+
+	3.完成Log实体中公共部分属性和Log类中间属性复制。
+
+	4.
+

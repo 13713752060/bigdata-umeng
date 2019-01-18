@@ -1,0 +1,528 @@
+时间校对
+---------------
+	日志生成时间 + 时间差。
+
+属性复制
+----------------
+	工具类增加方法。
+	/**
+	 * 属性复制
+	 */
+	public static void copyProperties(Object src , Object[] arr){
+		for(Object dest : arr){
+			copyProperties(src,dest) ;
+		}
+	}
+
+
+ip地址处理
+----------------
+	1.下载GeoLite数据库文件
+		GeoLite2-City.mmdb
+	2.引入pom.xml
+		<dependency>
+			<groupId>com.maxmind.db</groupId>
+			<artifactId>maxmind-db</artifactId>
+			<version>1.0.0</version>
+		</dependency>
+	3.通过API提取
+		@Test
+		public void test1() throws IOException {
+			InputStream in = ClassLoader.getSystemResourceAsStream("GeoLite2-City.mmdb");
+			Reader r = new Reader(in);
+			JsonNode node = r.get(InetAddress.getByName("140.211.11.105"));
+			//国家
+			String country = node.get("country").get("names").get("zh-CN").textValue();
+			System.out.println(country);
+			//省份
+			String area = node.get("subdivisions").get(0).get("names").get("zh-CN").textValue();
+			//城市
+			String city = node.get("city").get("names").get("zh-CN").textValue();
+
+			System.out.println(country + "." + area + "." + city);
+		}
+	4.封装GeoUtil工具类在common模块
+		package com.it18zhang.app.util;
+
+		import com.fasterxml.jackson.databind.JsonNode;
+		import com.maxmind.db.Reader;
+
+		import java.io.InputStream;
+		import java.net.InetAddress;
+
+		/**
+		 * 地理工具类，实现通过ip查找地址区域
+		 */
+		public class GeoUtil {
+			private static InputStream in ;
+			private static Reader reader ;
+			static{
+				try {
+					in = ClassLoader.getSystemResourceAsStream("GeoLite2-City.mmdb");
+					reader = new Reader(in);
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+
+			/**
+			 *获得国家数据
+			 */
+			public static String getCountry(String ip){
+				try{
+					JsonNode node = reader.get(InetAddress.getByName(ip));
+					return node.get("country").get("names").get("zh-CN").textValue();
+				}
+				catch (Exception e){
+					e.printStackTrace();
+				}
+				return "" ;
+			}
+			/**
+			 *获得国家数据
+			 */
+			public static String getProvince(String ip){
+				try{
+					JsonNode node = reader.get(InetAddress.getByName(ip));
+					return node.get("subdivisions").get(0).get("names").get("zh-CN").textValue();
+				}
+				catch (Exception e){
+					e.printStackTrace();
+				}
+				return "" ;
+			}
+			/**
+			 *获得国家数据
+			 */
+			public static String getCity(String ip){
+				try{
+					JsonNode node = reader.get(InetAddress.getByName(ip));
+					return node.get("city").get("names").get("zh-CN").textValue();
+				}
+				catch (Exception e){
+					e.printStackTrace();
+				}
+				return "" ;
+			}
+		}
+
+	5.controller完成属性复制、时间校对、ip设置
+		package com.it18zhang.applogs.collect.web.controller;
+
+		import com.alibaba.fastjson.JSONObject;
+		import com.it18zhang.app.common.*;
+		import com.it18zhang.app.util.GeoUtil;
+		import com.it18zhang.app.util.PropertiesUtil;
+		import org.springframework.stereotype.Controller;
+		import org.springframework.web.bind.annotation.RequestBody;
+		import org.springframework.web.bind.annotation.RequestMapping;
+		import org.springframework.web.bind.annotation.RequestMethod;
+		import org.springframework.web.bind.annotation.ResponseBody;
+
+		import javax.servlet.http.HttpServletRequest;
+
+		/**
+		 */
+		@Controller()
+		@RequestMapping("/coll")
+		public class CollectLogController {
+
+			@RequestMapping(value = "/index", method = RequestMethod.POST)
+			@ResponseBody
+			public AppLogEntity collect(@RequestBody AppLogEntity e, HttpServletRequest req) {
+
+				System.out.println("=============================");
+				//server时间
+				long myTime = System.currentTimeMillis() ;
+				//客户端时间
+				long clientTime = Long.parseLong(req.getHeader("clientTime"));
+				//时间校对
+				long diff = myTime - clientTime ;
+
+				//修正时间
+				verifyTime(e,diff) ;
+
+				//基本属性复制
+				copyBaseProperties(e);
+
+				//处理ip地址问题
+				String clientIp = req.getRemoteAddr();
+				processIp(e , clientIp);
+
+				//TODO 发送给Kafka.
+				return e;
+			}
+
+			/**
+			 * 处理ip client地址问题
+			 */
+			private void processIp(AppLogEntity e, String clientIp) {
+				String country = GeoUtil.getCountry(clientIp);
+				String province = GeoUtil.getProvince(clientIp);
+				String city = GeoUtil.getCity(clientIp);
+				for(AppStartupLog log : e.getAppStartupLogs()){
+					log.setCountry(country);
+					log.setProvince(province);
+					log.setIpAddress(clientIp);
+				}
+			}
+
+			/**
+			 * 修正时间
+			 */
+			private void verifyTime(AppLogEntity e,long diff){
+				//startuplog
+				for(AppBaseLog log : e.getAppStartupLogs()){
+					log.setCreatedAtMs(log.getCreatedAtMs() + diff );
+				}
+				for(AppBaseLog log : e.getAppUsageLogs()){
+					log.setCreatedAtMs(log.getCreatedAtMs() + diff );
+				}
+				for(AppBaseLog log : e.getAppPageLogs()){
+					log.setCreatedAtMs(log.getCreatedAtMs() + diff );
+				}
+				for(AppBaseLog log : e.getAppEventLogs()){
+					log.setCreatedAtMs(log.getCreatedAtMs() + diff );
+				}
+				for(AppBaseLog log : e.getAppErrorLogs()){
+					log.setCreatedAtMs(log.getCreatedAtMs() + diff );
+				}
+			}
+
+			/**
+			 * 复制基本属性
+			 */
+			private void copyBaseProperties(AppLogEntity e){
+				PropertiesUtil.copyProperties(e, e.getAppStartupLogs());
+				PropertiesUtil.copyProperties(e, e.getAppErrorLogs());
+				PropertiesUtil.copyProperties(e, e.getAppEventLogs());
+				PropertiesUtil.copyProperties(e, e.getAppPageLogs());
+				PropertiesUtil.copyProperties(e, e.getAppUsageLogs());
+			}
+		}
+
+地理信息缓存处理
+---------------------
+	0.创建GeoInfo类
+		public class GeoInfo {
+			private String country ;
+			private String province ;
+			//get/set
+		}
+
+	1.Controller中增加map，存放出现过的ip信息。
+		public class CollectLogController{
+
+			private Map<String,GeoInfo> cache = new HashMap<String, GeoInfo>();
+			/**
+			 * 处理ip client地址问题
+			 */
+			private void processIp(AppLogEntity e, String clientIp) {
+				GeoInfo info = cache.get(clientIp);
+				if(info == null){
+					info = GeoUtil.getGeoInfo(clientIp);
+					cache.put(clientIp,info) ;
+				}
+				for(AppStartupLog log : e.getAppStartupLogs()){
+					log.setCountry(info.getCountry());
+					log.setProvince(info.getProvince());
+					log.setIpAddress(clientIp);
+				}
+			}
+		}
+
+
+
+将log消息发送给kafka
+------------------------
+
+	1.创建5个主题。
+		$>kafka-topics.sh --zookeeper s202:2181 --create --topic topic_appstartup
+		$>kafka-topics.sh --zookeeper s202:2181 --create --topic topic_appstartup
+		$>kafka-topics.sh --zookeeper s202:2181 --create --topic topic_appstartup
+		$>kafka-topics.sh --zookeeper s202:2181 --create --topic topic_appstartup
+		$>kafka-topics.sh --zookeeper s202:2181 --create --topic topic_appstartup
+
+	2.web项目中引入kafka依赖
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka_2.11</artifactId>
+            <version>0.10.0.1</version>
+        </dependency>
+
+	3.common模块中创建常量类
+		package com.it18zhang.app.common;
+
+		/**
+		 * 常量类
+		 */
+		public class Constants {
+			//主题
+			public static final String TOPIC_APP_STARTUP = "topic_app_startup" ;
+		}
+
+
+	4.在controller发送消息给主题
+		/**
+		 * 测试消息发送
+		 */
+		public void sendMessage(AppLogEntity e) {
+			//创建配置对象
+			Properties props = new Properties();
+			props.put("metadata.broker.list", "s202:9092");
+			props.put("serializer.class", "kafka.serializer.StringEncoder");
+			props.put("request.required.acks", "1");
+
+			//创建生产者
+			Producer<Integer, String> producer = new Producer<Integer, String>(new ProducerConfig(props));
+
+			//startup
+			for(AppStartupLog log : e.getAppStartupLogs()){
+				String logMsg = JSONObject.toJSONString(log);
+				//创建消息
+				KeyedMessage<Integer, String> data = new KeyedMessage<Integer, String>(Constants.TOPIC_APP_STARTUP, logMsg);
+				producer.send(data);
+			}
+
+			//发送消息
+			producer.close();
+		}
+
+
+准备kafka集群
+--------------------
+	1.启动zk和kafka集群
+
+	2.创建主题
+		$>kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-startup
+		$>kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-error
+		$>kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-event
+		$>kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-usage
+		$>kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-page
+
+	3.验证主题
+		3.1)启动控制台消费者
+			kafka-topics.sh --zookeeper s202:2181 --replication-factor 3 --partitions 3 --create --topic topic-app-startup
+
+
+通过flume收集kafka消息到hdfs
+------------------------------
+	1.日志分成5个方面，hdfs中存放在不同目录下。
+		/user/centos/applogs/startup/201701/12/1213/xxx-xxxxxxx
+		/user/centos/applogs/startup/201701/12/1213/xxx-xxxxxxx
+		/user/centos/applogs/error/201701/12/1213/xxx-xxxxxxx
+		/user/centos/applogs/error/201701/12/1213/xxx-xxxxxxx
+
+	2.自定义flume拦截器
+		package com.it18zhang.app.flume.interceptor;
+
+		import com.alibaba.fastjson.JSONObject;
+		import com.it18zhang.app.common.AppBaseLog;
+		import org.apache.flume.Context;
+		import org.apache.flume.Event;
+		import org.apache.flume.interceptor.Interceptor;
+
+		import java.util.List;
+		import java.util.Map;
+
+		import static org.apache.flume.interceptor.TimestampInterceptor.Constants.*;
+
+		/**
+		 * 自定义flume的拦截器,提取body中的createTimeMS字段作为header
+		 */
+		public class LogCollInterceptor implements Interceptor {
+
+			private final boolean preserveExisting;
+
+			private LogCollInterceptor(boolean preserveExisting) {
+				this.preserveExisting = preserveExisting;
+			}
+
+			public void initialize() {
+			}
+
+			/**
+			 * Modifies events in-place.
+			 */
+			public Event intercept(Event event) {
+				Map<String, String> headers = event.getHeaders();
+				//处理时间
+				byte[] json = event.getBody();
+				String jsonStr = new String(json);
+				AppBaseLog log = JSONObject.parseObject(jsonStr , AppBaseLog.class);
+				long time = log.getCreatedAtMs();
+				headers.put(TIMESTAMP, Long.toString(time));
+
+				//处理log类型的头
+				//pageLog
+				String logType = "" ;
+				if(jsonStr.contains("pageId")){
+					logType = "page" ;
+				}
+				//eventLog
+				else if (jsonStr.contains("eventId")) {
+					logType = "event";
+				}
+				//usageLog
+				else if (jsonStr.contains("singleUseDurationSecs")) {
+					logType = "usage";
+				}
+				//error
+				else if (jsonStr.contains("errorBrief")) {
+					logType = "error";
+				}
+				//startup
+				else if (jsonStr.contains("network")) {
+					logType = "startup";
+				}
+				headers.put("logType", logType);
+				return event;
+			}
+
+			/**
+			 * Delegates to {@link #intercept(Event)} in a loop.
+			 *
+			 * @param events
+			 * @return
+			 */
+			public List<Event> intercept(List<Event> events) {
+				for (Event event : events) {
+					intercept(event);
+				}
+				return events;
+			}
+
+			public void close() {
+			}
+
+			/**
+			 */
+			public static class Builder implements Interceptor.Builder {
+
+				private boolean preserveExisting = PRESERVE_DFLT;
+
+				public Interceptor build() {
+					return new LogCollInterceptor(preserveExisting);
+				}
+
+				public void configure(Context context) {
+					preserveExisting = context.getBoolean(PRESERVE, PRESERVE_DFLT);
+				}
+
+			}
+
+			public static class Constants {
+				public static String TIMESTAMP = "timestamp";
+				public static String PRESERVE = "preserveExisting";
+				public static boolean PRESERVE_DFLT = false;
+			}
+
+		}
+
+	3.导入flume成jar包。
+		部署到flume的/lib下。
+
+	4.配置flume
+		a1.sources=r1
+		a1.channels=c1
+		a1.sinks=k1
+
+		a1.sources.r1.interceptors = i1
+		a1.sources.r1.interceptors.i1.type = com.it18zhang.app.flume.interceptor.LogCollInterceptor$Builder
+		a1.sources.r1.type = org.apache.flume.source.kafka.KafkaSource
+		a1.sources.r1.batchSize = 5000
+		a1.sources.r1.batchDurationMillis = 2000
+		a1.sources.r1.kafka.bootstrap.servers = s202:9092
+		a1.sources.r1.kafka.zookeeperConnect = s202:2181,s203:2181,s204:2181
+		a1.sources.r1.kafka.topics.regex = ^topic-app-.*$
+		#a1.sources.r1.kafka.consumer.group.id = g3
+
+		a1.channels.c1.type=memory
+		a1.channels.c1.capacity=100000
+		a1.channels.c1.transactionCapacity=10000
+
+		a1.sinks.k1.type = hdfs
+		a1.sinks.k1.hdfs.path = /user/centos/applogs/%{logType}/%Y%m/%d/%H%M
+		a1.sinks.k1.hdfs.filePrefix = events-
+		a1.sinks.k1.hdfs.round = false
+		a1.sinks.k1.hdfs.roundValue = 30
+		a1.sinks.k1.hdfs.roundUnit = second
+
+		a1.sources.r1.channels = c1
+		a1.sinks.k1.channel= c1
+
+	5.启动flume
+		$>flume-ng agent -f applog.conf -n a1
+
+bin/kafka-topics.sh --create --zookeeper master:2181 --replication-factor 1 --partitions 3 --topic topic-app-log-error
+bin/kafka-topics.sh --create --zookeeper master:2181 --replication-factor 1 --partitions 3 --topic topic-app-log-event
+bin/kafka-topics.sh --create --zookeeper master:2181 --replication-factor 1 --partitions 3 --topic topic-app-log-page
+bin/kafka-topics.sh --create --zookeeper master:2181 --replication-factor 1 --partitions 3 --topic topic-app-log-startup
+bin/kafka-topics.sh --create --zookeeper master:2181 --replication-factor 1 --partitions 3 --topic topic-app-log-usage
+
+	6.导出jar包，使用maven命令将pom依赖的所有第三方类库都下载下来。
+		cmd>cd ${pom.xml}
+		cmd>mvn -DoutputDirectory=./lib -DgroupId=com.it18zhang -DartifactId=app-logs-flume -Dversion=1.0-SNAPSHOT dependency:copy-dependencies
+
+
+
+配置hive数据仓库
+-------------------
+	0.说明
+		因为使用json格式存放数据，需要第三方serde库。
+		下载json-serde-1.3.8-jar-with-dependencies.jar
+
+	1.部署以上的jar包hive的lib下。
+
+	2.配置hive-site.xml文件，添加jar包的声明，永久注册。
+		[hive-site.xml]
+		<property>
+			<name>hive.aux.jars.path</name>
+			<value>file:///soft/hive/lib/json-serde-1.3.8-jar-with-dependencies.jar</value>
+		</property>
+
+	3.设置不压缩存储
+		[hive-site.xml]
+		<property>
+			<name>hive.exec.compress.output</name>
+			<value>false</value>
+		</property>
+
+	3.创建数据库
+		$hive>create database applogs_db ;
+
+	4.创建测试表
+		hive>create table test(id int , name string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+	5.执行插入
+		$hive>insert into test(id,name) values(1,'tom') ;
+
+	6.修改配置文件需要重新进入hive命令行
+
+	7.创建applogs表语句
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint , name string) PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint , name string) PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint , name string) PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint , name string) PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint , name string) PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+
+createdAtMs bigint,
+appId string,
+tenantId string,
+deviceId string,
+appVersion string,
+appChannel string,
+appPlatform string,
+osType string,
+deviceStyle string,
+
+country string,
+province string,
+ipAddress string,
+network string,
+carrier string,
+brand string,
+deviceStyle string,
+screenSize string,
+osType string,

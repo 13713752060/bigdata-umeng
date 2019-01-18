@@ -1,0 +1,1103 @@
+hive
+---------------
+	使用linux cron调度，周期加载hdfs数据到hive分区表。
+	flume从kafka抽取数据，写入hdfs文件系统。分区ym/day/hm
+	
+完善DateUtil和DayBeginUDF,WeekBeginUDF,MonthBeginUDF
+-----------------
+	[DateUtil.java]
+	package com.it18zhang.applogs.udf;
+
+	import java.text.SimpleDateFormat;
+	import java.util.Calendar;
+	import java.util.Date;
+
+	/**
+	 *
+	 */
+	public class DateUtil {
+		/**
+		 * 得到指定date的零时刻.
+		 */
+		public static Date getDayBeginTime(Date d) {
+			try {
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd 00:00:00");
+				return sdf.parse(sdf.format(d));
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+
+		/**
+		 * 得到指定date的偏移量零时刻.
+		 */
+		public static Date getDayBeginTime(Date d, int offset) {
+			try {
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd 00:00:00");
+				Date beginDate = sdf.parse(sdf.format(d));
+				Calendar c = Calendar.getInstance();
+				c.setTime(beginDate);
+				c.add(Calendar.DAY_OF_MONTH,offset);
+				return c.getTime() ;
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+
+		/**
+		 * 得到指定date所在周的起始时刻.
+		 */
+		public static Date getWeekBeginTime(Date d) {
+			try {
+				//得到d的零时刻
+				Date beginDate= getDayBeginTime(d);
+				Calendar c = Calendar.getInstance();
+				c.setTime(beginDate);
+				int n = c.get(Calendar.DAY_OF_WEEK);
+				c.add(Calendar.DAY_OF_MONTH,-(n - 1));
+				return c.getTime();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+
+		/**
+		 * 得到指定date所在周的起始时刻.
+		 */
+		public static Date getWeekBeginTime(Date d,int offset) {
+			try {
+				//得到d的零时刻
+				Date beginDate= getDayBeginTime(d);
+				Calendar c = Calendar.getInstance();
+				c.setTime(beginDate);
+				int n = c.get(Calendar.DAY_OF_WEEK);
+				//定位到本周第一天
+				c.add(Calendar.DAY_OF_MONTH,-(n - 1));
+				c.add(Calendar.DAY_OF_MONTH,offset * 7);
+				return c.getTime();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+
+		/**
+		 * 得到指定date所在月的起始时刻.
+		 */
+		public static Date getMonthBeginTime(Date d) {
+			try {
+				//得到d的零时刻
+				Date beginDate= getDayBeginTime(d);
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/01 00:00:00");
+				return sdf.parse(sdf.format(beginDate));
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+
+		/**
+		 * 得到指定date所在月的起始时刻.
+		 */
+		public static Date getMonthBeginTime(Date d,int offset) {
+			try {
+				//得到d的零时刻
+				Date beginDate= getDayBeginTime(d);
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/01 00:00:00");
+
+				//d所在月的第一天的零时刻
+				Date firstDay = sdf.parse(sdf.format(beginDate));
+
+				Calendar c = Calendar.getInstance();
+				c.setTime(firstDay);
+				//对月进行滚动
+				c.add(Calendar.MONTH,offset);
+
+				return c.getTime();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+	}
+
+	[DayBeginUDF]
+	package com.it18zhang.applogs.udf;
+
+	import org.apache.hadoop.hive.ql.exec.Description;
+	import org.apache.hadoop.hive.ql.exec.UDF;
+	import org.apache.hadoop.hive.ql.udf.UDFType;
+
+	import java.text.ParseException;
+	import java.text.SimpleDateFormat;
+	import java.util.Date;
+
+	/**
+	 * 计算day起始毫秒数
+	 */
+	@Description(name = "udf_getdaybegin",
+			value = "getdaybegin",
+			extended = "getdaybegin() ;\r\n"
+							   + " getdaybegin(2) \r\n"
+							   + " getdaybegin('2017/06/29 01:02:03') \r\n"
+							   + " getdaybegin('2017/06/29 01:02:03',2) \r\n"
+							   + " getdaybegin(date_obj) \r\n"
+							   + " getdaybegin(date_obj,2)")
+	public class DayBeginUDF extends UDF {
+
+		/**
+		 * 计算现在的起始时刻(毫秒数)
+		 */
+		public long evaluate() throws ParseException {
+			return evaluate(new Date());
+		}
+
+		/**
+		 * 指定天偏移量
+		 */
+		public long evaluate(int offset) throws ParseException {
+			return evaluate(DateUtil.getDayBeginTime(new Date(), offset));
+		}
+
+		/**
+		 * 计算某天的结束时刻(毫秒数)
+		 */
+		public long evaluate(Date d) throws ParseException {
+			return DateUtil.getDayBeginTime(d).getTime();
+		}
+
+		/**
+		 * 计算某天的结束时刻(毫秒数)
+		 */
+		public long evaluate(Date d, int offset) throws ParseException {
+			return DateUtil.getDayBeginTime(d, offset).getTime();
+		}
+
+		/**
+		 * 计算某天的起始时刻(毫秒数)
+		 */
+		public long evaluate(String dateStr) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return evaluate(d);
+		}
+
+		/**
+		 * 计算某天的起始时刻(毫秒数)
+		 */
+		public long evaluate(String dateStr, int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getDayBeginTime(d, offset).getTime();
+		}
+
+		/**
+		 * 计算某天的起始时刻(毫秒数)
+		 */
+		public long evaluate(String dateStr, String fmt) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getDayBeginTime(d).getTime();
+		}
+
+		/**
+		 * 计算某天的起始时刻(毫秒数)
+		 */
+		public long evaluate(String dateStr, String fmt, int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getDayBeginTime(d, offset).getTime();
+		}
+	}
+
+	[WeekBeginUDF]
+	package com.it18zhang.applogs.udf;
+
+	import org.apache.hadoop.hive.ql.exec.Description;
+	import org.apache.hadoop.hive.ql.exec.UDF;
+	import org.apache.hadoop.hive.ql.udf.UDFType;
+
+	import java.text.ParseException;
+	import java.text.SimpleDateFormat;
+	import java.util.Date;
+
+	/**
+	 * 计算day所在周起始毫秒数
+	 */
+	@Description(name = "udf_getweekbegin",
+			value = "getweekbegin",
+			extended = "getweekbegin() ;\r\n"
+							   + " getweekbegin(2) \r\n"
+							   + " getweekbegin('2017/06/29 01:02:03') \r\n"
+							   + " getweekbegin('2017/06/29 01:02:03',2) \r\n"
+							   + " getweekbegin(date_obj) \r\n"
+							   + " getweekbegin(date_obj,2)")
+	public class WeekBeginUDF extends UDF {
+
+		/**
+		 * 计算现在的起始时刻(毫秒数)
+		 */
+		public long evaluate() throws ParseException {
+			return DateUtil.getWeekBeginTime(new Date()).getTime() ;
+		}
+
+		/**
+		 * 指定周偏移量
+		 */
+		public long evaluate(int offset) throws ParseException {
+			return DateUtil.getWeekBeginTime(new Date(),offset).getTime();
+		}
+
+		/**
+		 *
+		 */
+		public long evaluate(Date d) throws ParseException {
+			return DateUtil.getWeekBeginTime(d).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(Date d,int offset) throws ParseException {
+			return DateUtil.getWeekBeginTime(d,offset).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getWeekBeginTime(d).getTime();
+		}
+		/**
+		 */
+		public long evaluate(String dateStr,int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getWeekBeginTime(d, offset).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr, String fmt) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getWeekBeginTime(d).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr, String fmt,int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getWeekBeginTime(d, offset).getTime();
+		}
+	}
+
+	[MonthBeginUDF]
+	package com.it18zhang.applogs.udf;
+
+	import org.apache.hadoop.hive.ql.exec.Description;
+	import org.apache.hadoop.hive.ql.exec.UDF;
+	import org.apache.hadoop.hive.ql.udf.UDFType;
+
+	import java.text.ParseException;
+	import java.text.SimpleDateFormat;
+	import java.util.Date;
+
+	/**
+	 * 计算day所在月起始毫秒数
+	 */
+	@Description(name = "udf_getmonthbegin",
+			value = "getmonthbegin",
+			extended = "getmonthbegin() ;\r\n" +
+							   " getmonthbegin(2) \r\n" +
+							   " getmonthbegin('2017/06/29 01:02:03') \r\n" +
+							   " getmonthbegin('2017/06/29 01:02:03',2) \r\n" +
+							   " getmonthbegin(date_obj) \r\n" +
+							   " getmonthbegin(date_obj,2)")
+	@UDFType(deterministic = true, stateful = false)
+	public class MonthBeginUDF extends UDF {
+
+		/**
+		 * 计算现在的起始时刻(毫秒数)
+		 */
+		public long evaluate() throws ParseException {
+			return DateUtil.getMonthBeginTime(new Date()).getTime() ;
+		}
+
+		/**
+		 * 指定周偏移量
+		 */
+		public long evaluate(int offset) throws ParseException {
+			return DateUtil.getMonthBeginTime(new Date(),offset).getTime();
+		}
+
+		/**
+		 *
+		 */
+		public long evaluate(Date d) throws ParseException {
+			return DateUtil.getMonthBeginTime(d).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(Date d,int offset) throws ParseException {
+			return DateUtil.getMonthBeginTime(d,offset).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getMonthBeginTime(d).getTime();
+		}
+		/**
+		 */
+		public long evaluate(String dateStr,int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getMonthBeginTime(d, offset).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr, String fmt) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getMonthBeginTime(d).getTime();
+		}
+
+		/**
+		 */
+		public long evaluate(String dateStr, String fmt,int offset) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+			Date d = sdf.parse(dateStr);
+			return DateUtil.getMonthBeginTime(d, offset).getTime();
+		}
+	}
+
+重新注册函数
+--------------------
+	1.maven导出hive的jar
+	2.部署到hive/lib下
+	3.删除之前的函数
+		drop [temporary] function xxx ;
+
+	4.注册函数
+		$hive>create function getdaybegin AS 'com.it18zhang.applogs.udf.DayBeginUDF';
+		$hive>create function getweekbegin AS 'com.it18zhang.applogs.udf.WeekBeginUDF';
+		$hive>create function getmonthbegin AS 'com.it18zhang.applogs.udf.MonthBeginUDF';
+
+
+appid=sdk34734的日新增用户
+----------------------------
+	//今天新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getdaybegin() and mintime < getdaybegin(1)) t ;
+	//昨天新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getdaybegin(-1) and mintime < getdaybegin()) t ;
+	//指定时间的新增用户数
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getdaybegin('2017/05/09 00:00:00') and mintime < getdaybegin('2017/05/09 00:00:00',1)) t ;
+	
+appid=sdk34734的周新增用户
+----------------------------
+	//当前周新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getweekbegin() and mintime < getweekbegin(1)) t ;
+	//当前周新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getweekbegin(-1) and mintime < getweekbegin()) t ;
+	
+	//当前周新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getweekbegin('2017/05/09 00:00:00') and mintime < getweekbegin('2017/05/09 00:00:00',1)) t ;
+	
+
+appid=sdk34734的周新增用户
+-----------------------------
+	//当前月新增
+	select count(*) from (select min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by deviceid having mintime >= getmonthbegin() and mintime < getmonthbegin(1)) t ;
+
+
+appid='sdk34734'的总用户数
+----------------------------
+	select count(distinct deviceid) from ext_startup_logs where appid = 'sdk34734' ;
+
+
+活跃用户数据
+-----------------
+	//日活	
+	select count(distinct deviceid) from ext_startup_logs 
+									where appid = 'sdk34734' 
+											and ym  = formattime(getdaybegin(),'yyyyMM')
+											and day = formattime(getdaybegin(),'dd');
+	//周活
+	select count(distinct deviceid) from ext_startup_logs where appid = 'sdk34734' where createdatms >= getweekbegin() and createdatms <  getweekbegin(1) ;
+	//月活
+	select count(distinct deviceid) from ext_startup_logs where appid = 'sdk34734' where createdatms >= getmonthbegin() and createdatms <  getmonthbegin(1) ;
+
+	//一次查询出一周内每天的日活跃数。
+	select formattime(createdatms,'yyyy/MM/dd') day ,count(distinct deviceid) from ext_startup_logs 
+									where appid = 'sdk34734' and createdatms >= getweekbegin() and createdatms < getweekbegin(1) 
+									group by day ;
+
+	//一次查询出一个月内每周的周活跃数。
+	select formattime(createdatms,'yyyy/MM/dd',0) week ,count(distinct deviceid) from ext_startup_logs 
+									where appid = 'sdk34734' and createdatms >= getweekbegin(-6) and createdatms < getweekbegin(-1) 
+									group by week ;
+	
+	//一次查询出过去的三个月内每周的月活跃数。
+	select formattime(createdatms,'yyyy/MM',0) month ,count(distinct deviceid) from ext_startup_logs 
+									where appid = 'sdk34734' and createdatms >= getmonthbegin(-4) and createdatms < getmonthbegin(-1) 
+									group by month ;
+
+编写自定义函数FormatTimeUDF
+--------------------------
+	1.自定义函数FormatTimeUDF
+	package com.it18zhang.applogs.udf;
+
+	import org.apache.hadoop.hive.ql.exec.Description;
+	import org.apache.hadoop.hive.ql.exec.UDF;
+
+	import java.text.ParseException;
+	import java.text.SimpleDateFormat;
+	import java.util.Date;
+
+	/**
+	 * 将long型的时间片格式化成指定日期格式
+	 */
+	@Description(name = "udf_formattime",
+			value = "formattime",
+			extended = "formattime() ;\r\n"
+							   + " formattime(1234567,'yyyy/MM/01') \r\n"
+							   + " formattime('1234567','yyyy/MM/dd')")
+	public class FormatTimeUDF extends UDF {
+
+		/**
+		 * 格式化时间,long型
+		 */
+		public String evaluate(long ms,String fmt) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt) ;
+			Date d = new Date();
+			d.setTime(ms);
+			return sdf.format(d) ;
+		}
+		/**
+		 * 格式化时间，string类型
+		 */
+		public String evaluate(String ms,String fmt) throws ParseException {
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt) ;
+			Date d = new Date();
+			d.setTime(Long.parseLong(ms));
+			return sdf.format(d) ;
+		}
+
+		/**
+		 * 格式化时间，string类型
+		 */
+		public String evaluate(long ms ,String fmt , int week) throws ParseException {
+			Date d = new Date();
+			d.setTime(ms);
+			//周内第一天
+			Date firstDay = DateUtil.getWeekBeginTime(d) ;
+			SimpleDateFormat sdf = new SimpleDateFormat(fmt) ;
+			return sdf.format(firstDay) ;
+		}
+	}
+
+	2.导出jar部署放到hive/lib
+
+	3.注册函数
+		$>hive create function formattime AS 'com.it18zhang.applogs.udf.FormatTimeUDF' ;
+
+appid='sdk34734'今天的沉默用户
+-------------------------------
+
+
+
+创建可视化web程序，基于SSM的。
+-----------------------------
+	1.创建模块 
+	2.添加pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-visualize-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+				<dependency>
+					<groupId>mysql</groupId>
+					<artifactId>mysql-connector-java</artifactId>
+					<version>5.0.8</version>
+				</dependency>
+				<dependency>
+					<groupId>c3p0</groupId>
+					<artifactId>c3p0</artifactId>
+					<version>0.9.1.2</version>
+				</dependency>
+				<dependency>
+					<groupId>org.mybatis</groupId>
+					<artifactId>mybatis</artifactId>
+					<version>3.2.1</version>
+				</dependency>
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-jdbc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>org.mybatis</groupId>
+					<artifactId>mybatis-spring</artifactId>
+					<version>1.3.0</version>
+				</dependency>
+				<dependency>
+					<groupId>org.aspectj</groupId>
+					<artifactId>aspectjweaver</artifactId>
+					<version>1.8.10</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>jstl</groupId>
+					<artifactId>jstl</artifactId>
+					<version>1.2</version>
+				</dependency>
+			</dependencies>
+		</project>
+	
+	3.配置web.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+				 version="3.1">
+			<!-- 指定监听器配置参数 -->
+			<context-param>
+				<param-name>contextConfigLocation</param-name>
+				<param-value>classpath:beans.xml</param-value>
+			</context-param>
+			<filter>
+				<filter-name>characterEncodingFilter</filter-name>
+				<filter-class>org.springframework.web.filter.CharacterEncodingFilter
+				</filter-class>
+				<init-param>
+					<param-name>encoding</param-name>
+					<param-value>UTF-8</param-value>
+				</init-param>
+				<init-param>
+					<param-name>forceEncoding</param-name>
+					<param-value>true</param-value>
+				</init-param>
+			</filter>
+			<filter-mapping>
+				<filter-name>characterEncodingFilter</filter-name>
+				<url-pattern>/*</url-pattern>
+			</filter-mapping>
+			<!-- 确保web服务器启动时，完成spring配置文件的加载，和dispatcher加载文件进行融合. -->
+			<listener>
+				<listener-class>org.springframework.web.context.ContextLoaderListener
+				</listener-class>
+			</listener>
+
+			<servlet>
+				<servlet-name>dispatcher</servlet-name>
+				<servlet-class>org.springframework.web.servlet.DispatcherServlet
+				</servlet-class>
+			</servlet>
+			<servlet-mapping>
+				<servlet-name>dispatcher</servlet-name>
+				<url-pattern>/</url-pattern>
+			</servlet-mapping>
+		</web-app>
+
+	4.复制相关资源.
+		
+	5.创建项目包
+		com.it18zhang.applogs.visualize.service
+		com.it18zhang.applogs.visualize.service.impl
+		com.it18zhang.applogs.visualize.web.controller
+	
+	6.创建类
+		[service + service实现类]
+		//接口
+		public interface StatService {
+		}
+
+		//实现类
+		@Service("statService")
+		public class StatServiceImpl implements StatService {
+
+		}
+
+	7.controller类
+		@Controller
+		@RequestMapping("/stat")
+		public class StatController {
+
+			/**
+			 * appid = "sdk34734"
+			 * 本周每天新增用户数
+			 */
+			@RequestMapping("/newusers")
+			public String newUsers(){
+
+				return null ;
+			}
+		}
+
+	8.配置spring配置文件
+		[web-inf/dispatcher-servlet.xml]
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xmlns:mvc="http://www.springframework.org/schema/mvc"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+									http://www.springframework.org/schema/beans/spring-beans.xsd
+									http://www.springframework.org/schema/mvc
+									http://www.springframework.org/schema/mvc/spring-mvc.xsd
+									http://www.springframework.org/schema/context
+								   http://www.springframework.org/schema/context/spring-context.xsd">
+			<mvc:annotation-driven/>
+			<!-- 静态资源 -->
+			<mvc:resources mapping="/html/**" location="/html/"/>
+			<mvc:resources mapping="/css/**" location="/css/"/>
+			<mvc:resources mapping="/js/**" location="/js/"/>
+			<mvc:resources mapping="/images/**" location="/images/"/>
+
+			<!-- 扫描控制器 -->
+			<context:component-scan base-package="com.it18zhang.applogs.visualize.web.controller"/>
+
+			<!-- 配置视图解析器 -->
+			<bean id="viewResolver"
+				  class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+				<property name="prefix" value="/jsps/"/>
+				<property name="suffix" value=".jsp"/>
+			</bean>
+		</beans>
+
+	9.创建resources/mybatis-config.xml
+		<?xml version="1.0" encoding="UTF-8" ?>
+		<!DOCTYPE configuration
+				PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+				"http://mybatis.org/dtd/mybatis-3-config.dtd">
+		<configuration>
+			<!-- 定义类别名 -->
+			<typeAliases>
+				<typeAlias type="com.it18zhang.applogs.visualize.dao.StatBean" alias="_StatBean" />
+			</typeAliases>
+			<environments default="development">
+				<environment id="development">
+					<transactionManager type="JDBC"/>
+					<dataSource type="POOLED">
+						<property name="driver" value="${driver}"/>
+						<property name="url" value="${url}"/>
+						<property name="username" value="${username}"/>
+						<property name="password" value="${password}"/>
+					</dataSource>
+				</environment>
+			</environments>
+			<mappers>
+				<mapper resource="StatBean.xml"/>
+			</mappers>
+		</configuration>
+
+	10.在pom.xml中hive-jdbc依赖。
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-jdbc</artifactId>
+            <version>2.1.0</version>
+        </dependency>
+
+	11.修改beans.xml文件的数据源部分
+		<!-- 数据源 -->
+		<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+			<property name="driverClass" value="org.apache.hive.jdbc.HiveDriver"/>
+			<property name="jdbcUrl" value="jdbc:hive2://s201:10000/applogsdb"/>
+			<property name="user" value=""/>
+			<property name="password" value=""/>
+			<property name="maxPoolSize" value="10"/>
+			<property name="minPoolSize" value="2"/>
+			<property name="initialPoolSize" value="3"/>
+			<property name="acquireIncrement" value="2"/>
+		</bean>
+	
+	12.启动hiveserver2服务器
+		$>hiveserver2 &
+	
+	13.是否hiveserver2启动成功
+		$>netstat -anop | grep 10000
+	
+	14.测试数据源是否连通.
+		
+		
+关闭beans.xml中的service事务
+----------------------------
+    <!-- 事务通知-->
+    <tx:advice id="txAdvice" transaction-manager="txManager">
+        <tx:attributes>
+			<!-- 关闭事务 -->
+            <tx:method name="*" propagation="SUPPORTS" isolation="DEFAULT"/>
+        </tx:attributes>
+    </tx:advice>
+
+mybatis的映射文件中sql语句中有< >需要转移
+------------------------------------------
+	<?xml version="1.0" encoding="UTF-8" ?>
+	<!DOCTYPE mapper
+			PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+			"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+	<mapper namespace="stats">
+		<!-- 查询新增用户 -->
+		<select id="newusers" resultMap="rm_StatBean">
+			select count(*) stcount
+			from (
+			  select min(createdatms) mintime
+			  from ext_startup_logs
+			  where appid = 'sdk34734'
+			) t
+		</select>
+		<!-- 哪款app今天新增用户数 -->
+		<select id="selectAppIdTodayNewusers">
+			select deviceid , min(createdatms) mintime
+			from ext_startup_logs
+			where appid = #{appid}
+			group by deviceid
+			having mintime &gt;= getdaybegin() and mintime &lt; getdaybegin(1)
+		</select>
+		<resultMap id="rm_StatBean" type="_StatBean">
+			<result column="stcount" property="count" />
+		</resultMap>
+	</mapper>
+
+查询哪一个app今日新增用户数
+---------------------------
+	1.StatBeanMapper.xml
+		<!-- 哪款app今天新增用户数 -->
+		<select id="selectAppIdTodayNewusers">
+		  select count(*) stcount
+		  from
+			(
+			select appid, deviceid , min(createdatms) mintime
+			from ext_startup_logs
+			where appid = #{appid}
+			group by deviceid
+			having mintime &gt;= getdaybegin() and mintime &lt; getdaybegin(1)
+			) t
+		</select>
+	2.BaseDao.java
+
+连接上ui部分
+--------------------
+	1.将index.html文件转移到/jsps/index.jsp
+		
+	2.在StatController.java
+		@RequestMapping("/index")
+		public String toStatPage(){
+			return "index" ;
+		}
+	3.测试
+
+controller和service进行集成
+----------------------------
+	1.注入service给controller
+		public class StatController {
+
+			@Resource(name="statService")
+			private StatService ss ;
+			..
+		}
+
+	2.修改index.jsp，增加链接。
+		<%@taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c"%>
+		...
+		227行:<a href='<c:url value="/stat/newusers" />'>新增用户</a>
+	3.启动服务器测试
+
+
+可视化项目整合进dubbo，实现服务的提供者的ha
+---------------------------------------------
+	1.说明
+		可视化程序是服务的消费者(基于spring)
+		服务的提供者需要单独部署(spring)
+	
+	2.创建新模块,统计服务提供者模块
+	
+
+准备服务提供者模块
+----------------------
+	1.创建新模块
+	2.复制web可视化模块中的dao,dao.impl,service.impl + 配置文件。
+	3.引入pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-statservice-provider</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>c3p0</groupId>
+					<artifactId>c3p0</artifactId>
+					<version>0.9.1.2</version>
+				</dependency>
+				<dependency>
+					<groupId>org.mybatis</groupId>
+					<artifactId>mybatis</artifactId>
+					<version>3.2.1</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-jdbc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-context</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>org.mybatis</groupId>
+					<artifactId>mybatis-spring</artifactId>
+					<version>1.3.0</version>
+				</dependency>
+				<dependency>
+					<groupId>org.aspectj</groupId>
+					<artifactId>aspectjweaver</artifactId>
+					<version>1.8.10</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.hive</groupId>
+					<artifactId>hive-jdbc</artifactId>
+					<version>2.1.0</version>
+				</dependency>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>dubbo</artifactId>
+					<version>2.5.3</version>
+				</dependency>
+				<dependency>
+					<groupId>com.101tec</groupId>
+					<artifactId>zkclient</artifactId>
+					<version>0.9</version>
+				</dependency>
+			</dependencies>
+		</project>
+
+	4.修改beans.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:tx="http://www.springframework.org/schema/tx"
+			   xmlns:aop="http://www.springframework.org/schema/aop"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xmlns:dubbo="http://code.alibabatech.com/schema/dubbo"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+								   http://www.springframework.org/schema/beans/spring-beans.xsd
+								   http://www.springframework.org/schema/context
+								   http://www.springframework.org/schema/context/spring-context-4.3.xsd
+								   http://www.springframework.org/schema/tx
+								   http://www.springframework.org/schema/tx/spring-tx-4.3.xsd
+								   http://www.springframework.org/schema/aop
+								   http://www.springframework.org/schema/aop/spring-aop-4.3.xsd
+								   http://code.alibabatech.com/schema/dubbo
+								   http://code.alibabatech.com/schema/dubbo/dubbo.xsd">
+			<!-- 扫描dao和service包 -->
+			<context:component-scan base-package="com.it18zhang.applogs.visualize.service.impl,com.it18zhang.applogs.visualize.dao.impl" />
+
+			<!-- 事务通知-->
+			<tx:advice id="txAdvice" transaction-manager="txManager">
+				<tx:attributes>
+					<tx:method name="*" propagation="SUPPORTS" isolation="DEFAULT"/>
+				</tx:attributes>
+			</tx:advice>
+
+			<aop:config>
+				<aop:advisor advice-ref="txAdvice" pointcut="execution(* *..*Service.*(..))" />
+			</aop:config>
+
+			<!-- 数据源 -->
+			<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+				<property name="driverClass" value="org.apache.hive.jdbc.HiveDriver"/>
+				<property name="jdbcUrl" value="jdbc:hive2://s201:10000/applogsdb"/>
+				<property name="user" value=""/>
+				<property name="password" value=""/>
+				<property name="maxPoolSize" value="10"/>
+				<property name="minPoolSize" value="2"/>
+				<property name="initialPoolSize" value="3"/>
+				<property name="acquireIncrement" value="2"/>
+			</bean>
+
+			<!-- 配置sessionfactory -->
+			<bean id="sessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+				<property name="dataSource" ref="dataSource" />
+				<property name="configLocation" value="classpath:mybatis-config.xml" />
+			</bean>
+
+			<!-- 事务管理器 -->
+			<bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+				<property name="dataSource" ref="dataSource" />
+			</bean>
+
+			<!-- 提供方应用信息，用于计算依赖关系 -->
+			<dubbo:application name="dubbodemo"/>
+
+			<!-- 使用zookeeper注册中心暴露服务地址 -->
+			<dubbo:registry address="zookeeper://s202:2181"/>
+
+			<!-- 用dubbo协议在20880端口暴露服务 -->
+			<dubbo:protocol name="dubbo" port="20880"/>
+
+			<!-- 声明需要暴露的服务接口 -->
+			<dubbo:service interface="com.it18zhang.applogs.visualize.service.StatService" ref="statService"/>
+		</beans>
+
+	5.启动服务提供方.
+		package com.it18zhang.applogs;
+
+		import org.springframework.context.ApplicationContext;
+		import org.springframework.context.support.ClassPathXmlApplicationContext;
+
+		/**
+		 * Created by Administrator on 2017/6/29.
+		 */
+		public class ServiceStarter {
+			public static void main(String[] args) throws InterruptedException {
+				ApplicationContext ac = new ClassPathXmlApplicationContext("beans.xml");
+				while (true) {
+					Thread.sleep(1000);
+				}
+			}
+		}
+
+配置web可视化程序的dubbo客户端代理
+-----------------------------------
+	1.web引入pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-visualize-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>jstl</groupId>
+					<artifactId>jstl</artifactId>
+					<version>1.2</version>
+				</dependency>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>dubbo</artifactId>
+					<version>2.5.3</version>
+				</dependency>
+				<dependency>
+					<groupId>com.101tec</groupId>
+					<artifactId>zkclient</artifactId>
+					<version>0.9</version>
+				</dependency>
+			</dependencies>
+		</project>
+	
+	2./web-inf/dispatcher-servlet.xml添加dubbo元素
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xmlns:mvc="http://www.springframework.org/schema/mvc"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xmlns:dubbo="http://code.alibabatech.com/schema/dubbo"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+									http://www.springframework.org/schema/beans/spring-beans.xsd
+									http://www.springframework.org/schema/mvc
+									http://www.springframework.org/schema/mvc/spring-mvc.xsd
+									http://www.springframework.org/schema/context
+									http://www.springframework.org/schema/context/spring-context.xsd
+									http://code.alibabatech.com/schema/dubbo
+									http://code.alibabatech.com/schema/dubbo/dubbo.xsd">
+			<mvc:annotation-driven/>
+			<!-- 静态资源 -->
+			<mvc:resources mapping="/html/**" location="/html/"/>
+			<mvc:resources mapping="/css/**" location="/css/"/>
+			<mvc:resources mapping="/js/**" location="/js/"/>
+			<mvc:resources mapping="/images/**" location="/images/"/>
+
+			<!-- 扫描控制器 -->
+			<context:component-scan
+					base-package="com.it18zhang.applogs.visualize.web.controller"/>
+
+			<!-- 配置视图解析器 -->
+			<bean id="viewResolver"
+				  class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+				<property name="prefix" value="/jsps/"/>
+				<property name="suffix" value=".jsp"/>
+			</bean>
+
+			<dubbo:application name="consumer_app"/>
+
+			<dubbo:registry address="zookeeper://s202:2181"/>
+			<dubbo:consumer timeout="5000"/>
+
+			<dubbo:reference id="statService"
+							 interface="com.it18zhang.applogs.visualize.service.StatService"/>
+
+		</beans>
+	
+	3.
+	4.
+
+
+
+
+
+查询一周内某个app每天新增用户数
+-------------------------------
+	select formattime(createdatms,'yyyy/MM/dd') day ,deviceid ,min(createdatms) mintime from ext_startup_logs where appid = 'sdk34734' group by day deviceid having mintime >= getweekbegin() and mintime < getweekbegin(1) ;
+	//本周新的用户列表
+	select deviceid , min(createdatms) mintime from ext_startup_logs group by deviceid having mintime >= getweekbegin() and mintime < getweekbegin(1)
+	//本周内每天的新的用户
+	select formattime(t.mintime,'yyyy/MM/dd'),count(*) from (select deviceid , min(createdatms) mintime from ext_startup_logs group by deviceid having mintime >= getweekbegin() and mintime < getweekbegin(1)) t group by formattime(t.mintime,'yyyy/MM/dd') ;
+	//使用
+	create function formattime as 'com.it18zhang.applogs.udf.FormatTimeUDF' using jar 'hdfs://mycluster/user/centos/app-logs-hive-1.0-SNAPSHOT.jar'
+

@@ -1,0 +1,75 @@
+=============================== 运行程序需要启动的服务 =================================
+-- zk cluster
+-- kafka cluster
+-- hdfs cluster
+-- yarn cluster
+-- tomcat [app-web 进行移动端日志收集，然后转发送到kafka cluster]
+-- 模拟移动端日志生成程序[app-log-phone]
+-- flume 收集kafka数据sink 到hdfs
+-- linux crond 任务调度，每隔一段时间见hdfs 的数据导入到hive仓库。
+-- hive sql 进行业务指标统计。
+
+================================== 集群启动命令 ======================================
+集群启动命令：[若多台机器都需要执行，建议写个脚本一步到位。]
+* zk [每台kafka 机器都要执行]
+[root@master zookeeper]# zkServer.sh start
+
+* kafka [每台kafka 机器都要执行]
+[root@master kafka]# bin/kafka-server-start.sh  config/server.properties
+
+* hdfs [在namenode节点执行即可]
+[root@master hadoop]# sbin/start-dfs.sh
+
+* yarn [在resourcemanager节点执行即可]
+[root@master hadoop]# sbin/start-yarn.sh
+
+* tomcat [只有一台需要]
+[root@master tomcat]# bin/startup.sh
+
+* flume [启动一台即可]
+[root@master flume]# bin/flume-ng agent -f kafka-hdfs.conf -n a1
+
+* crond [启动crond调度]
+该调度检查服务是否启动即可。
+   2.调度命令
+    //查看状态
+    $>service crond status
+    //停止
+    $>service crond stop
+    //启动
+    $>service crond start
+   3.配置调度任务
+    [/etc/crontab下]
+    0-59|0-23 1-31 1-12 0-6
+     分   时  天   月   星期
+     *    *    *    *    *   centos  source /etc/profile; echo `date` >> ~/1.log
+* hive [注意：保证元数据库开启]
+[root@master hive]# bin/hive
+
+================================== 常用命令 ======================================
+
+#### Kafka
+-- 查看所有topic
+bin/kafka-topics.sh --list --zookeeper  zk01:2181
+
+-- 创建topic
+bin/kafka-topics.sh --create --zookeeper zk01:2181 --replication-factor 1 --partitions 3 --topic firstTopic
+
+-- 删除topic
+bin/kafka-topics.sh --delete --zookeeper zk01:2181 --topic firstTopic
+
+-- 通过shell 发送消息
+bin/kafka-console-producer.sh --broker-list kafka01:9092 --topic firstTopic
+
+-- 通过shell 消费消息
+bin/kafka-console-consumer.sh --zookeeper zk01:2181 --from-beginning --topic firstTopic
+
+-- 查看消费位置
+bin/kafka-run-class.sh kafka.tools.ConsumerOffsetChecker --zookeeper zk01:2181 --group firstTopic
+
+--查看某个Topic的详情
+bin/kafka-topics.sh --topic testGroup --describe --zookeeper zk01:2181
+
+#### flume
+-- 启动flume
+ ./bin/flume-ng agent -n a1 -c conf -f conf/myconf/exec.conf -Dflume.root.logger=INFO,console

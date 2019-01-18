@@ -1,0 +1,1059 @@
+hive命令启动时出现假死机
+------------------------
+	有可能是两个namenode都处于standby状态。
+
+hive的UDF函数找不到问题
+-----------------------
+	1.注册函数，使用using jar方式在hdfs上引用udf库。
+		$hive>create function formattime as 'com.it18zhang.applogs.udf.FormatTimeUDF' using jar 'hdfs://mycluster/user/centos/app-logs-hive-1.0-SNAPSHOT.jar';
+		$hive>create function getdaybegin as 'com.it18zhang.applogs.udf.DayBeginUDF' using jar 'hdfs://mycluster/user/centos/app-logs-hive-1.0-SNAPSHOT.jar';
+		$hive>create function getweekbegin as 'com.it18zhang.applogs.udf.WeekBeginUDF' using jar 'hdfs://mycluster/user/centos/app-logs-hive-1.0-SNAPSHOT.jar';
+		$hive>create function getmonthbegin as 'com.it18zhang.applogs.udf.MonthBeginUDF' using jar 'hdfs://mycluster/user/centos/app-logs-hive-1.0-SNAPSHOT.jar';
+
+	2.注销函数，只需要删除mysql的hive数据记录即可。
+		delete from func_ru ;
+		delete from funcs ;
+
+
+dubbo服务消费者问题
+------------------
+	1.断开dubbo和spring之间依赖,spring仍然使用4.3.3版本。
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-visualize-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>jstl</groupId>
+					<artifactId>jstl</artifactId>
+					<version>1.2</version>
+				</dependency>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>dubbo</artifactId>
+					<version>2.5.3</version>
+					<exclusions>
+						<exclusion>
+							<groupId>org.springframework</groupId>
+							<artifactId>*</artifactId>
+						</exclusion>
+					</exclusions>
+				</dependency>
+				<dependency>
+					<groupId>com.101tec</groupId>
+					<artifactId>zkclient</artifactId>
+					<version>0.9</version>
+				</dependency>
+			</dependencies>
+		</project>
+	2.增加zk连接超时时间片。
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xmlns:mvc="http://www.springframework.org/schema/mvc"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xmlns:dubbo="http://code.alibabatech.com/schema/dubbo"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+									http://www.springframework.org/schema/beans/spring-beans.xsd
+									http://www.springframework.org/schema/mvc
+									http://www.springframework.org/schema/mvc/spring-mvc.xsd
+									http://www.springframework.org/schema/context
+									http://www.springframework.org/schema/context/spring-context.xsd
+									http://code.alibabatech.com/schema/dubbo
+									file:///d:/dubbo.xsd">
+			<mvc:annotation-driven/>
+			<!-- 静态资源 -->
+			<mvc:resources mapping="/html/**" location="/html/"/>
+			<mvc:resources mapping="/css/**" location="/css/"/>
+			<mvc:resources mapping="/js/**" location="/js/"/>
+			<mvc:resources mapping="/images/**" location="/images/"/>
+
+			<!-- 扫描控制器 -->
+			<context:component-scan
+					base-package="com.it18zhang.applogs.visualize.web.controller"/>
+
+			<!-- 配置视图解析器 -->
+			<bean id="viewResolver"
+				  class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+				<property name="prefix" value="/jsps/"/>
+				<property name="suffix" value=".jsp"/>
+			</bean>
+
+			<dubbo:application name="consumer_app"/>
+
+			<dubbo:registry address="zookeeper://s202:2181"/>
+			<dubbo:consumer timeout="50000"/>
+
+			<dubbo:reference id="statService"
+							 interface="com.it18zhang.applogs.visualize.service.StatService"/>
+
+		</beans>
+
+	3.启动dubbo的provider
+
+	4.启动web可视化程序
+
+改造dubbo
+-------------------
+	1.传递的javabean需要时实现java.io.Serializable接口
+		class StatBean implements Serializable{
+			...
+		}
+
+	2.将接口抽取出放到公共包下
+		domain包
+		service包
+
+ajax
+------------------
+	async javascript and  xml.
+	异步请求 + 局部刷新。
+	<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+	<%@taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c"%>
+	<html lang="en">
+	<head>
+	  <meta charset="utf-8">
+	  <title>十八掌App流量大数据分析系统</title>
+	  <link rel="stylesheet"
+			href="//apps.bdimg.com/libs/jqueryui/1.10.4/css/jquery-ui.min.css">
+	  <script src="//apps.bdimg.com/libs/jquery/1.10.2/jquery.min.js"></script>
+	  <script src="//apps.bdimg.com/libs/jqueryui/1.10.4/jquery-ui.min.js"></script>
+	  <script src="../js/echarts.js"></script>
+	  <script>
+		  $(function () {
+			  //手风琴特效
+			  $("#accordion").accordion();
+			  //菜单鼠标悬停
+			  $("#accordion a").mouseenter(function () {
+				  //重置所有连接的颜色
+				  $("#accordion a").css("background-color", "white");
+				  $(this).css("background-color", "#EAEAEA");
+			  });
+
+			  //鼠标移除
+			  $("#accordion a").click(function () {
+				  //重置所有连接的颜色
+				  $("#accordion a").css("color", "#6a6a6a");
+				  $(this).css("background-color", "#EAEAEA");
+				  $(this).css("color", "#3DA1A7");
+			  });
+
+			  $("#a_newusers").click(function(){
+				  $.getJSON("/js/log.json",function(d){
+					option.xAxis.data = d.data;
+					myChart.setOption(option);
+				  });
+
+	//            option.xAxis.data = ["aa", "bb", "cc", "dd", "ee", "ff"];
+	//            myChart.setOption(option);
+				//阻止事件的传递
+				return false;
+			  });
+		  });
+	  </script>
+	  <style type="text/css">
+		.test {
+		  background-color: #3DA1A7;
+		}
+
+		body {
+		  padding: 0px;
+		  margin: 0px;
+		}
+
+		#div-top {
+		  height: 30px;
+		  width: 100%;
+		  background-color: #3b485b;
+		  border: 0px solid #3b485b;
+		}
+
+		#div-top ul {
+		  margin: 0px;
+		}
+
+		#div-top ul li {
+		  list-style: none;
+		  display: block;
+		  float: left;
+		  color: white;
+		  border: 0px solid white;
+		  line-height: 30px;
+		  width: 70px;
+		  vertical-align: middle;
+		  text-align: center;
+		}
+
+		#div-top ul li:first-child {
+		  list-style: none;
+		  display: block;
+		  float: left;
+		  color: white;
+		  border: 0px solid white;
+		  line-height: 30px;
+		  width: 130px;
+		  vertical-align: middle;
+		  text-align: center;
+		}
+
+		#div-top ul li a {
+		  text-decoration: none;
+		  font-size: smaller;
+		  color: #9da4ad;
+		}
+
+		#div-top ul li:first-child a {
+		  color: white;
+		  text-decoration: none;
+		  font-size: 15px;
+		}
+
+		#div-banner {
+		  background: url("../images1/backg.png") repeat-x 0 -61px;
+		  height: 60px;
+		  width: 100%;
+		  border: 0px solid blue;
+		  text-align: left;
+		}
+
+		#div-banner form {
+		  border: 0px solid blue;
+		  width: 200px;
+		  height: 57px;
+		  vertical-align: middle;
+		  line-height: 57px;
+		  text-align: center;
+		}
+
+		#div-banner select {
+		  border-radius: 20px;
+		  font-size: 15px;
+		  display: inline;
+		  padding: 3px 10px;
+		}
+
+		#div-banner ul {
+		  border: 0px solid blue;
+		  list-style: none;
+		  display: block;
+		  position: absolute;
+		  left: 200px;
+		  top: 14px;
+		  height: 57px;
+		  width: 600px;
+		  vertical-align: middle;
+		  line-height: 57px;
+		  margin-left: 380px;
+		}
+
+		#div-banner ul li {
+		  display: inline;
+		  padding: 0px 20px;
+		}
+
+		#div-banner ul li a {
+		  text-decoration: none;
+		  font-size: 16px;
+		  color: #333333;
+		}
+
+		#accordion {
+		  margin: 10px 20px;
+		  width: 200px;
+		}
+
+		#accordion a {
+		  display: block;
+		  height: 45px;
+		  width: 200px;
+		  text-decoration: none;
+		  text-align: center;
+		  line-height: 45px;
+		  font-size: 14px;
+		  border-radius: 2px;
+		  margin: 1px 0px 0px -40px;
+		  border: 1px solid #AAAAAA;
+		  border-width: 0px 0px 1px 0px;
+		}
+
+		/*第一个a子元素*/
+		#accordion a:first-child {
+		  margin-top: -20px;
+		}
+
+		#div-stat-header {
+		  border: 1px solid #B4B4B4;
+		  position: absolute;
+		  left: 250px;
+		  top: 100px;
+		  width: 1050px;
+		  height: 50px;
+		  border-top-left-radius: 5px;
+		  border-top-right-radius: 5px;
+		  background-color: rgb(230, 230, 230);
+		  vertical-align: middle;
+		  line-height: 50px;
+		  padding-left: 20px;
+		}
+
+		#div-chart {
+		  border: 1px solid #B4B4B4;
+		  position: absolute;
+		  left: 250px;
+		  top: 151px;
+		  width: 1050px;
+		  height: 440px;
+		  vertical-align: middle;
+		  line-height: 50px;
+		  padding-left: 20px;
+		}
+
+	  </style>
+	</head>
+	<body>
+	<div id="div-top">
+	  <ul>
+		<li><a href="#">十八掌教育出品+</a></li>
+		<li><a href="#">首页</a></li>
+		<li><a href="#">产品</a></li>
+		<li><a href="#">报告</a></li>
+		<li><a href="#">开发者中心</a></li>
+		<li><a href="#">论坛</a></li>
+		<li><a href="#">活动</a></li>
+	  </ul>
+	</div>
+	<div id="div-banner">
+	  <form action="" method="post">
+		<select name="appid">
+		  <option>全部</option>
+		  <option>微信</option>
+		  <option>QQ</option>
+		  <option>UC</option>
+		  <option>植物大战僵尸</option>
+		</select>
+	  </form>
+	  <ul>
+		<li><a href="#">统计分析</a></li>
+		<li><a href="#">组件</a></li>
+		<li><a href="#">管理</a></li>
+	  </ul>
+	</div>
+	<div id="accordion">
+	  <h3>概况</h3>
+	  <div>
+		<a href="#">实时统计</a>
+		<a href="#">整体分析</a>
+	  </div>
+	  <h3>用户分析</h3>
+	  <div>
+		<a id="a_newusers" href='<c:url value="/stat/newusers" />'>新增用户</a>
+		<a href="#">活跃用户</a>
+		<a href="#">沉默用户</a>
+		<a href="#">启动次数</a>
+		<a href="#">版本分布</a>
+		<a href="#">行业数据</a>
+	  </div>
+	  <h3>用户构成</h3>
+	  <div>
+		<a href="#">周用户构成</a>
+		<a href="#">用户成分转化</a>
+		<a href="#">变化系数分析</a>
+	  </div>
+	  <h3>留存分析</h3>
+	  <div>
+		<a href="#">留存用户</a>
+		<a href="#">用户新鲜度</a>
+		<a href="#">用户活跃度</a>
+	  </div>
+	</div>
+	<div id="div-stat-header">
+	  新增用户趋势
+	</div>
+	<div id="div-chart">
+	</div>
+	<script type="application/javascript">
+		// 基于准备好的dom，初始化echarts实例
+		var myChart = echarts.init(document.getElementById('div-chart'));
+		// 指定图表的配置项和数据
+		var option = {
+			title: {
+				text: '日活跃用户统计'
+			},
+			tooltip: {},
+			legend: {
+				data: ['v1.1', 'v1.2', 'v1.3']
+			},
+			xAxis: {
+				axisLabel: {
+					rotate: 20,
+					interval: 0,//横轴信息全部显示
+				},
+				data: ["6月10日/周一(父亲节)", "6月11日/周二", "6月12日/周三", "6月13日/周四", "6月14日/周五", "6月15日/周六"]
+			},
+			yAxis: {},
+			series: [{
+				name: 'v1.1',
+				type: 'bar',
+				data: [5, 20, 36, 10, 10, 20]
+			}, {
+				name: 'v1.2',
+				type: 'bar',
+				data: [6, 23, 38, 13, 15, 26]
+			}, {
+				name: 'v1.3',
+				type: 'bar',
+				data: [10, 35, 29, 21, 9, 33]
+			}]
+		};
+
+		// 使用刚指定的配置项和数据显示图表。
+		myChart.setOption(option);
+	</script>
+	</body>
+	</html>
+
+
+通过hive查询统计数据返回到web端，生成图表
+------------------------------------------
+	ehart + dubbo + hive
+	0.添加pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-visualize-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+
+			<dependencies>
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.3.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>jstl</groupId>
+					<artifactId>jstl</artifactId>
+					<version>1.2</version>
+				</dependency>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>dubbo</artifactId>
+					<version>2.5.3</version>
+					<exclusions>
+						<exclusion>
+							<groupId>org.springframework</groupId>
+							<artifactId>*</artifactId>
+						</exclusion>
+					</exclusions>
+				</dependency>
+				<dependency>
+					<groupId>com.101tec</groupId>
+					<artifactId>zkclient</artifactId>
+					<version>0.9</version>
+				</dependency>
+				<!-- 新增部分 -->
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-core</artifactId>
+					<version>2.8.8</version>
+				</dependency>
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-databind</artifactId>
+					<version>2.8.3</version>
+				</dependency>
+				<!-- 公共模块 -->
+				<dependency>
+					<groupId>com.it18zhang</groupId>
+					<artifactId>app-analyze-common</artifactId>
+					<version>1.0-SNAPSHOT</version>
+				</dependency>
+			</dependencies>
+		</project>
+	1.配置dispatcher-servet.xml配置文件，增加jsonMapping,类似于app-logs-collect-web模块。
+		<?xml version="1.0" encoding="UTF-8"?>
+		<beans xmlns="http://www.springframework.org/schema/beans"
+			   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+			   xmlns:mvc="http://www.springframework.org/schema/mvc"
+			   xmlns:context="http://www.springframework.org/schema/context"
+			   xmlns:dubbo="http://code.alibabatech.com/schema/dubbo"
+			   xsi:schemaLocation="http://www.springframework.org/schema/beans
+									http://www.springframework.org/schema/beans/spring-beans.xsd
+									http://www.springframework.org/schema/mvc
+									http://www.springframework.org/schema/mvc/spring-mvc.xsd
+									http://www.springframework.org/schema/context
+									http://www.springframework.org/schema/context/spring-context.xsd
+									http://code.alibabatech.com/schema/dubbo
+									file:///d:/dubbo.xsd">
+			<mvc:annotation-driven/>
+			<!-- 静态资源 -->
+			<mvc:resources mapping="/html/**" location="/html/"/>
+			<mvc:resources mapping="/css/**" location="/css/"/>
+			<mvc:resources mapping="/js/**" location="/js/"/>
+			<mvc:resources mapping="/images/**" location="/images/"/>
+
+			<!-- 扫描控制器 -->
+			<context:component-scan
+					base-package="com.it18zhang.applogs.visualize.web.controller"/>
+
+			<!-- 配置视图解析器 -->
+			<bean id="viewResolver"
+				  class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+				<property name="prefix" value="/jsps/"/>
+				<property name="suffix" value=".jsp"/>
+			</bean>
+
+			<dubbo:application name="consumer_app"/>
+
+			<dubbo:registry address="zookeeper://s202:2181"/>
+			<dubbo:consumer timeout="50000000" />
+
+			<dubbo:reference id="statService"
+							 interface="com.it18zhang.applogs.visualize.service.StatService"/>
+
+			<!-- 此处乃进行json数据传输的关键,当配置 -->
+			<bean id="jsonMapping"
+				  class="org.springframework.http.converter.json.MappingJackson2HttpMessageConverter"/>
+			<bean class="org.springframework.web.servlet.mvc.annotation.AnnotationMethodHandlerAdapter">
+				<property name="messageConverters">
+					<list>
+						<ref bean="jsonMapping"/>
+					</list>
+				</property>
+			</bean>
+		</beans>
+
+	2.Controller中增加方法，返回javabean，javabean对象会进行转换成json格式数据回传给client
+		/**
+		 * 统计
+		 */
+		@RequestMapping("/stat1")
+		@ResponseBody
+		public StatBean stat1(){
+			StatBean b1 = new StatBean();
+			b1.setDate("2017/06/30");
+			b1.setCount(1000);
+			return b1 ;
+		}
+
+
+		/**
+		 * 统计
+		 */
+		@RequestMapping("/stat2")
+		@ResponseBody
+		public List<StatBean> stat2(){
+			List<StatBean> list = new ArrayList<StatBean>();
+			for(int i = 0 ; i < 10 ; i ++){
+				StatBean b1 = new StatBean();
+				b1.setDate("2017/06/" + (10 + i));
+				b1.setCount(100 + i);
+				list.add(b1) ;
+			}
+			return list ;
+		}
+
+
+回传StatBean列表，处理数据后，回传map,操纵json数据
+-------------------------------
+	1.StatController.java
+		@RequestMapping("/week1")
+		@ResponseBody
+		public Map<String, Object> stat3() {
+			List<StatBean> list = ss.findThisWeekNewUsers("sdk34734");
+			Map<String,Object> map = new HashMap<String,Object>();
+
+			String[] xlabels = new String[list.size()] ;
+			long[] newUsers = new long[list.size()];
+			for(int i = 0 ; i < list.size() ; i ++){
+				xlabels[i] = list.get(i).getDate();
+				newUsers[i] = list.get(i).getCount();
+			}
+			map.put("labels",xlabels);
+			map.put("data", newUsers);
+			return map ;
+		}
+
+	2.修改index.jsp
+		<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+		<%@taglib uri="http://java.sun.com/jsp/jstl/core" prefix="c"%>
+		<html lang="en">
+		<head>
+		  <meta charset="utf-8">
+		  <title>十八掌App流量大数据分析系统</title>
+		  <link rel="stylesheet"
+				href="//apps.bdimg.com/libs/jqueryui/1.10.4/css/jquery-ui.min.css">
+		  <script src="//apps.bdimg.com/libs/jquery/1.10.2/jquery.min.js"></script>
+		  <script src="//apps.bdimg.com/libs/jqueryui/1.10.4/jquery-ui.min.js"></script>
+		  <script src="../js/echarts.js"></script>
+		  <script>
+			  $(function () {
+				  //手风琴特效
+				  $("#accordion").accordion();
+				  //菜单鼠标悬停
+				  $("#accordion a").mouseenter(function () {
+					  //重置所有连接的颜色
+					  $("#accordion a").css("background-color", "white");
+					  $(this).css("background-color", "#EAEAEA");
+				  });
+
+				  //鼠标移除
+				  $("#accordion a").click(function () {
+					  //重置所有连接的颜色
+					  $("#accordion a").css("color", "#6a6a6a");
+					  $(this).css("background-color", "#EAEAEA");
+					  $(this).css("color", "#3DA1A7");
+				  });
+
+				  $("#a_newusers").click(function(){
+					  $.getJSON("/stat/week1",function(d){
+						option.xAxis.data = d.labels;
+						option.series[0].data = d.data
+						myChart.setOption(option);
+					  });
+
+		//            option.xAxis.data = ["aa", "bb", "cc", "dd", "ee", "ff"];
+		//            myChart.setOption(option);
+					//阻止事件的传递
+					return false;
+				  });
+			  });
+		  </script>
+		  <style type="text/css">
+			.test {
+			  background-color: #3DA1A7;
+			}
+
+			body {
+			  padding: 0px;
+			  margin: 0px;
+			}
+
+			#div-top {
+			  height: 30px;
+			  width: 100%;
+			  background-color: #3b485b;
+			  border: 0px solid #3b485b;
+			}
+
+			#div-top ul {
+			  margin: 0px;
+			}
+
+			#div-top ul li {
+			  list-style: none;
+			  display: block;
+			  float: left;
+			  color: white;
+			  border: 0px solid white;
+			  line-height: 30px;
+			  width: 70px;
+			  vertical-align: middle;
+			  text-align: center;
+			}
+
+			#div-top ul li:first-child {
+			  list-style: none;
+			  display: block;
+			  float: left;
+			  color: white;
+			  border: 0px solid white;
+			  line-height: 30px;
+			  width: 130px;
+			  vertical-align: middle;
+			  text-align: center;
+			}
+
+			#div-top ul li a {
+			  text-decoration: none;
+			  font-size: smaller;
+			  color: #9da4ad;
+			}
+
+			#div-top ul li:first-child a {
+			  color: white;
+			  text-decoration: none;
+			  font-size: 15px;
+			}
+
+			#div-banner {
+			  background: url("../images1/backg.png") repeat-x 0 -61px;
+			  height: 60px;
+			  width: 100%;
+			  border: 0px solid blue;
+			  text-align: left;
+			}
+
+			#div-banner form {
+			  border: 0px solid blue;
+			  width: 200px;
+			  height: 57px;
+			  vertical-align: middle;
+			  line-height: 57px;
+			  text-align: center;
+			}
+
+			#div-banner select {
+			  border-radius: 20px;
+			  font-size: 15px;
+			  display: inline;
+			  padding: 3px 10px;
+			}
+
+			#div-banner ul {
+			  border: 0px solid blue;
+			  list-style: none;
+			  display: block;
+			  position: absolute;
+			  left: 200px;
+			  top: 14px;
+			  height: 57px;
+			  width: 600px;
+			  vertical-align: middle;
+			  line-height: 57px;
+			  margin-left: 380px;
+			}
+
+			#div-banner ul li {
+			  display: inline;
+			  padding: 0px 20px;
+			}
+
+			#div-banner ul li a {
+			  text-decoration: none;
+			  font-size: 16px;
+			  color: #333333;
+			}
+
+			#accordion {
+			  margin: 10px 20px;
+			  width: 200px;
+			}
+
+			#accordion a {
+			  display: block;
+			  height: 45px;
+			  width: 200px;
+			  text-decoration: none;
+			  text-align: center;
+			  line-height: 45px;
+			  font-size: 14px;
+			  border-radius: 2px;
+			  margin: 1px 0px 0px -40px;
+			  border: 1px solid #AAAAAA;
+			  border-width: 0px 0px 1px 0px;
+			}
+
+			/*第一个a子元素*/
+			#accordion a:first-child {
+			  margin-top: -20px;
+			}
+
+			#div-stat-header {
+			  border: 1px solid #B4B4B4;
+			  position: absolute;
+			  left: 250px;
+			  top: 100px;
+			  width: 1050px;
+			  height: 50px;
+			  border-top-left-radius: 5px;
+			  border-top-right-radius: 5px;
+			  background-color: rgb(230, 230, 230);
+			  vertical-align: middle;
+			  line-height: 50px;
+			  padding-left: 20px;
+			}
+
+			#div-chart {
+			  border: 1px solid #B4B4B4;
+			  position: absolute;
+			  left: 250px;
+			  top: 151px;
+			  width: 1050px;
+			  height: 440px;
+			  vertical-align: middle;
+			  line-height: 50px;
+			  padding-left: 20px;
+			}
+
+		  </style>
+		</head>
+		<body>
+		<div id="div-top">
+		  <ul>
+			<li><a href="#">十八掌教育出品+</a></li>
+			<li><a href="#">首页</a></li>
+			<li><a href="#">产品</a></li>
+			<li><a href="#">报告</a></li>
+			<li><a href="#">开发者中心</a></li>
+			<li><a href="#">论坛</a></li>
+			<li><a href="#">活动</a></li>
+		  </ul>
+		</div>
+		<div id="div-banner">
+		  <form action="" method="post">
+			<select name="appid">
+			  <option>全部</option>
+			  <option>微信</option>
+			  <option>QQ</option>
+			  <option>UC</option>
+			  <option>植物大战僵尸</option>
+			</select>
+		  </form>
+		  <ul>
+			<li><a href="#">统计分析</a></li>
+			<li><a href="#">组件</a></li>
+			<li><a href="#">管理</a></li>
+		  </ul>
+		</div>
+		<div id="accordion">
+		  <h3>概况</h3>
+		  <div>
+			<a href="#">实时统计</a>
+			<a href="#">整体分析</a>
+		  </div>
+		  <h3>用户分析</h3>
+		  <div>
+			<a id="a_newusers" href='<c:url value="/stat/newusers" />'>新增用户</a>
+			<a href="#">活跃用户</a>
+			<a href="#">沉默用户</a>
+			<a href="#">启动次数</a>
+			<a href="#">版本分布</a>
+			<a href="#">行业数据</a>
+		  </div>
+		  <h3>用户构成</h3>
+		  <div>
+			<a href="#">周用户构成</a>
+			<a href="#">用户成分转化</a>
+			<a href="#">变化系数分析</a>
+		  </div>
+		  <h3>留存分析</h3>
+		  <div>
+			<a href="#">留存用户</a>
+			<a href="#">用户新鲜度</a>
+			<a href="#">用户活跃度</a>
+		  </div>
+		</div>
+		<div id="div-stat-header">
+		  新增用户趋势
+		</div>
+		<div id="div-chart">
+
+		</div>
+		<script type="application/javascript">
+			// 基于准备好的dom，初始化echarts实例
+			var myChart = echarts.init(document.getElementById('div-chart'));
+			// 指定图表的配置项和数据
+			var option = {
+				title: {
+					text: '日活跃用户统计'
+				},
+				tooltip: {},
+				legend: {
+					data: ['v1.1', 'v1.2', 'v1.3']
+				},
+				xAxis: {
+					axisLabel: {
+						rotate: 20,
+						interval: 0,//横轴信息全部显示
+					},
+					data: ["6月10日/周一(父亲节)", "6月11日/周二", "6月12日/周三", "6月13日/周四", "6月14日/周五", "6月15日/周六"]
+				},
+				yAxis: {},
+				series: [{
+					name: 'v1.1',
+					type: 'bar',
+					data: [5, 20, 36, 10, 10, 20]
+				}]
+			};
+
+			// 使用刚指定的配置项和数据显示图表。
+			myChart.setOption(option);
+		</script>
+		</body>
+		</html>
+
+
+[用户分析]
+	1.过去的五周(包含本周)某个app每周的周活跃用户数
+		注意，如果能够界定分区区间的话，务必要进行分区限定查询。
+		20170501
+		ym/day/hm
+
+		select  formattime(createdatms,'yyyyMMdd',0) stdate, count(distinct deviceid) stcount from ext_startup_logs where concat(ym,day) >= formattime(getweekbegin(-4),'yyyyMMdd') and appid ='sdk34734' group by formattime(createdatms,'yyyyMMdd',0) ;
+
+	2.最近的六个月(包含本月)每月的月活跃数。
+		select  formattime(createdatms,'yyyyMM') stdate, count(distinct deviceid) stcount from ext_startup_logs where ym >= formattime(getmonthbegin(-5),'yyyyMM') and appid ='sdk34734' group by formattime(createdatms,'yyyyMM') ;
+
+	3.沉默用户数
+		3.1)查询今天沉默用户数
+			select count(*) from (select deviceid , count(createdatms) dcount,min(createdatms) dmin from ext_startup_logs where appid = 'sdk34734' group by deviceid having dcount = 1 and dmin < getdaybegin(-1)) t
+
+	4.启动次数
+		4.1)今天app的启动次数
+			启动次数类似于活跃用户数，活跃用户数去重，启动次数不需要去重。
+			select
+				count(*)
+			from ext_startup_logs
+			where appid = 'sdk34734' ym = formattime(getdaybegin(),'yyyyMM') and day = formattime(getdaybegin(),'dd')
+
+	5.版本分布
+		5.1)今天appid为34734的不同版本的活跃用户数。
+			select
+				appversion,count(distinct deviceid)
+			from ext_startup_logs
+			where appid = 'sdk34734' ym = formattime(getdaybegin(),'yyyyMM') and day = formattime(getdaybegin(),'dd')
+			group by appversion ;
+
+		5.2)本周内每天各版本日活
+			select formattime(createdatms,'yyyyMMdd'),appversion , count(distinct deviceid) from ext_startup_logs where appid = 'sdk34734' and concat(ym,day) >= formattime(getweekbegin(),'yyyyMMdd') group by formattime(createdatms,'yyyyMMdd') , appversion
+
+
+[用户构成分析]
+	1.本周回流用户
+		select
+			distinct deviceid
+		from ext_startup_logs
+		where appid = 'sdk34734' and concat(ym,day) >= formattime(getweekbegin(),'yyyyMMdd') and deviceid not in (
+			select
+				distinct t.deviceid
+				from ext_startup_logs t
+				where t.appid = 'sdk34734' and concat(t.ym,t.day) >= formattime(getweekbegin(-1),'yyyyMMdd') and  concat(t.ym,t.day) < formattime(getweekbegin(),'yyyyMMdd')
+			)
+
+	2.连续活跃n周
+		select deviceid , count(distinct(formattime(createdatms,'yyyyMMdd',0))) c from ext_startup_logs where appid = 'sdk34734' and concat(ym,day) >= formattime(getweekbegin(-2),'yyyyMMdd') group by deviceid having c = 3
+
+	3.忠诚用户
+		select deviceid , count(distinct(formattime(createdatms,'yyyyMMdd',0))) c from ext_startup_logs where appid = 'sdk34734' and concat(ym,day) >= formattime(getweekbegin(-4),'yyyyMMdd') group by deviceid having c = 5
+
+	4.连续活跃用户
+		select deviceid , count(distinct(formattime(createdatms,'yyyyMMdd',0))) c from ext_startup_logs where appid = 'sdk34734' and concat(ym,day) >= formattime(getweekbegin(-1),'yyyyMMdd') group by deviceid having c = 2
+
+	5.近期流失用户
+		最近2、3、4都没有启动过app.
+		查询所有用户访问的时间的max,max不能落在
+		//四周内流失
+		select
+			distinct(deviceid)
+		from ext_startup_logs
+		where appid='#'
+				and concat(ym,day) >= formattime(getweekbegin(-4),'yyyyMMdd')
+				and concat(ym,day) < formattime(getweekbegin(-3),'yyyyMMdd')
+				and deviceid not in (
+					select
+						distinct(t.deviceid)
+					from ext_startup_logs t
+					where t.appid=''
+							and concat(t.ym,t.day) >= formattime(getweekbegin(-3),'yyyyMMdd')
+
+				)
+		union
+		//三周内流失
+		select
+			distinct(deviceid)
+		from ext_startup_logs
+		where appid='#'
+				and concat(ym,day) >= formattime(getweekbegin(-3),'yyyyMMdd')
+				and concat(ym,day) < formattime(getweekbegin(-2),'yyyyMMdd')
+				and deviceid not in (
+					select
+						distinct(t.deviceid)
+					from ext_startup_logs t
+					where t.appid=''
+							and concat(t.ym,t.day) >= formattime(getweekbegin(-2),'yyyyMMdd')
+
+				)
+		union
+		//两周内流失
+		select
+			distinct(deviceid)
+		from ext_startup_logs
+		where appid='#'
+				and concat(ym,day) >= formattime(getweekbegin(-2),'yyyyMMdd')
+				and concat(ym,day) < formattime(getweekbegin(-1),'yyyyMMdd')
+				and deviceid not in (
+					select
+						distinct(t.deviceid)
+					from ext_startup_logs t
+					where t.appid=''
+							and concat(t.ym,t.day) >= formattime(getweekbegin(-1),'yyyyMMdd')
+
+				)
+
+
+[留存分析]
+	1.留存用户
+		周留存用户。
+		select
+			distinct(deviceid)
+		from ext_startup_logs
+		where appid = 'sdk34734'
+				and concat(ym,day) >= formattime(getweekbegin(-1),'yyyyMMdd')
+				and concat(ym,day) < formattime(getweekbegin(),'yyyyMMdd')
+				and deviceid in (
+					 select distinct(t.deviceid)
+					 from (
+							select tt.deviceid , min(tt.createdatms) mintime
+							from ext_startup_logs tt
+							where tt.appid = 'sdk34734'
+							group by tt.deviceid having mintime >= getweekbegin(-2) and mintime < getweekbegin(-1)
+							) t
+				)
+
+
+	2.用户的新鲜度
+		新鲜度 = 某段时间的新增用户数/某段时间的活跃的老用户数 .
+		//今天活跃用户
+
+		m = select count(distinct(t.deviceid))
+		 from ext_startup_logs where concat(ym,day) = formattime(getdaybegin(),'yyyyMMdd')  and appid = ... ;
+
+		//今天新增用户
+		n = select count(distinct(t.deviceid))
+		 from (
+				select tt.deviceid , min(tt.createdatms) mintime
+				from ext_startup_logs tt
+				where tt.appid = 'sdk34734'
+				group by tt.deviceid having mintime >= getdaybegin(0)
+				) t
+
+		新鲜度 = n / (m - n )
+
+	3.用户活跃度

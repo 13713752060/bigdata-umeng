@@ -1,0 +1,420 @@
+flume
+-----------
+	applogs/startup/ym/day/hm
+	applogs/startup/ym/day/hm
+
+	自定义拦截器.header中logType和timestamp.
+	hdfssink =
+
+hive
+------------
+	JsonSerde : jaxo.
+	json.
+
+公共模块加载Geo数据库的Null Stream问题
+-------------
+	类加载问题。
+	ClassLoader.getSystemSystemAsStream("Geo.mmdb") ;
+	web
+	tomcat
+
+	使用线程获得当前的类加载器.
+	public class GeoUtil {
+		...
+		static{
+			try {
+				ClassLoader loader = Thread.currentThread().getContextClassLoader();
+				in = loader.getResource("GeoLite2-City.mmdb").openStream();
+				reader = new Reader(in);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+idea下模块之间存在依赖关系
+-----------------------------
+	1)只需要在项目结构中添加依赖的模块即可，不需要在pom.xml中添加依赖工件。
+	2)在web模块工件部分，将依赖的第三方模块put into web-info/classes下。
+
+
+hdfssink默认写入的文件类型是seqfile，
+避免出现大量小文件。
+-------------------------------
+	[applogs.conf]
+	a1.sources=r1
+	a1.channels=c1
+	a1.sinks=k1
+
+	a1.sources.r1.interceptors = i1
+	a1.sources.r1.interceptors.i1.type = com.it18zhang.app.flume.interceptor.LogCollInterceptor$Builder
+	a1.sources.r1.type = org.apache.flume.source.kafka.KafkaSource
+	a1.sources.r1.batchSize = 5000
+	a1.sources.r1.batchDurationMillis = 2000
+	a1.sources.r1.kafka.bootstrap.servers = s202:9092
+	a1.sources.r1.kafka.zookeeperConnect = s202:2181,s203:2181,s204:2181
+	a1.sources.r1.kafka.topics.regex = ^topic-app-.*$
+	#a1.sources.r1.kafka.consumer.group.id = g3
+
+	a1.channels.c1.type=memory
+	a1.channels.c1.capacity=100000
+	a1.channels.c1.transactionCapacity=10000
+
+	a1.sinks.k1.type = hdfs
+	a1.sinks.k1.hdfs.path = /user/centos/applogs/%{logType}/%Y%m/%d/%H%M
+	a1.sinks.k1.hdfs.filePrefix = events-
+	a1.sinks.k1.hdfs.round = false
+	a1.sinks.k1.hdfs.roundValue = 30
+	a1.sinks.k1.hdfs.roundUnit = second
+
+	#不要产生大量小文件
+	a1.sinks.k1.hdfs.rollInterval = 30
+	a1.sinks.k1.hdfs.rollSize = 0
+	a1.sinks.k1.hdfs.rollCount = 0
+
+	#控制输出文件是原生文件。
+	a1.sinks.k1.hdfs.fileType = DataStream
+
+
+	a1.sources.r1.channels = c1
+	a1.sinks.k1.channel= c1
+
+
+hive分区表
+-------------------------
+	1)创建数据库
+		$hive>create database applogsdb ;
+
+	2)创建分区表
+		编写脚本。
+		[applogs_create_table.sql]
+		use applogsdb;
+		--startup
+		CREATE external TABLE ext_startup_logs(createdAtMs bigint,appId string,tenantId string,deviceId string,appVersion string,appChannel string,appPlatform string,osType string,deviceStyle string,country string,province string,ipAddress string,network string,carrier string,brand string,screenSize string)PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+		--error
+		CREATE external TABLE ext_error_logs(createdAtMs bigint,appId string,tenantId string,deviceId string,appVersion string,appChannel string,appPlatform string,osType string,deviceStyle string,errorBrief string,errorDetail string)PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+		--event
+		CREATE external TABLE ext_event_logs(createdAtMs bigint,appId string,tenantId string,deviceId string,appVersion string,appChannel string,appPlatform string,osType string,deviceStyle string,eventId string,eventDurationSecs bigint,paramKeyValueMap Map<string,string>)PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+		--page
+		CREATE external TABLE ext_page_logs(createdAtMs bigint,appId string,tenantId string,deviceId string,appVersion string,appChannel string,appPlatform string,osType string,deviceStyle string,pageViewCntInSession int,pageId string,visitIndex int,nextPage string,stayDurationSecs bigint)PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+		--usage
+		CREATE external TABLE ext_usage_logs(createdAtMs bigint,appId string,tenantId string,deviceId string,appVersion string,appChannel string,appPlatform string,osType string,deviceStyle string,singleUseDurationSecs bigint,singleUploadTraffic bigint,singleDownloadTraffic bigint)PARTITIONED BY (ym string, day string,hm string) ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe' STORED AS TEXTFILE;
+
+	3)执行applogs.sql脚本
+		$>hive -f applogs.sql
+
+使用Linux cron调度，周期性load数据到hive的分区表
+------------------------------------------------
+	1.解释
+		调度就是周期运行指定的任务。
+	2.调度命令
+		//查看状态
+		$>service crond status
+		//停止
+		$>service crond stop
+		//启动
+		$>service crond start
+
+	3.配置调度任务
+		[/etc/crontab下]
+		0-59|0-23 1-31 1-12 0-6
+		 分   时  天   月   星期
+		 *    *    *    *    *   centos  source /etc/profile;echo `date` >> ~/1.log
+
+	4.编写脚本，周期性导入hdfs的文件到hive的分区表
+		[~/Downloads/.exportData.sql]
+		load data inpath '/user/centos/applogs/startup/${ym}/${day}/${hm}' into table applogsdb.ext_startup_logs partition(ym='${ym}',day='${ym}',hm='${ym}');
+		load data inpath '/user/centos/applogs/error/${ym}/${day}/${hm}' into table applogsdb.ext_error_logs partition(ym='${ym}',day='${ym}',hm='${ym}');
+		load data inpath '/user/centos/applogs/event/${ym}/${day}/${hm}' into table applogsdb.ext_event_logs partition(ym='${ym}',day='${ym}',hm='${ym}');
+		load data inpath '/user/centos/applogs/usage/${ym}/${day}/${hm}' into table applogsdb.ext_usage_logs partition(ym='${ym}',day='${ym}',hm='${ym}');
+		load data inpath '/user/centos/applogs/page/${ym}/${day}/${hm}' into table applogsdb.ext_page_logs partition(ym='${ym}',day='${ym}',hm='${ym}');
+
+	5.编写执行脚本
+		[~/Downloads/exec.sql]
+		#!/bin/bash
+		systime=`date -d "-3 minute" +%Y%m-%d-%H%M`
+		ym=`echo ${systime} | awk -F '-' '{print $1}'`
+		day=`echo ${systime} | awk -F '-' '{print $2}'`
+		hm=`echo ${systime} | awk -F '-' '{print $3}'`
+
+		cp ~/Downloads/.exportData.sql ~/Downloads/exportData.sql
+		sed -i 's/${ym}/'${ym}'/g' ~/Downloads/exportData.sql
+		sed -i 's/${day}/'${day}'/g' ~/Downloads/exportData.sql
+		sed -i 's/${hm}/'${hm}'/g' ~/Downloads/exportData.sql
+
+
+		#执行hive的命令
+		hive -f ~/Downloads/exportData.sql
+		rm ~/Downloads/exportData.sql
+
+	6.使用sed命令编辑文件
+		//删除第一行
+		$>sed '1d' 1.log
+		//删除最后一行
+		$>sed '$d' 1.log
+		//删除区间行
+		$>sed '1,3d' 1.log
+		//删除所有行
+		$>sed '1,$d' 1.log
+
+		//p:print
+		$>sed '1,$p' 1.log
+
+		//-n:安静模式，只显示处理的行
+		$>sed -n '1,$p' 1.log
+
+		//-i:对源文件进行修改
+		$>sed -i '1,$p' 1.log
+
+		//显示含有hello的行
+		$>sed -n '/hello/p' 1.log
+
+		//追加内容
+		$>sed -i '1ahello' 1.log
+		//追加新行，指定前置字符
+		$>sed -i '1a\ hello' 1.log
+
+		//每行都追加hello
+		$>sed -i '1,3ahello' 1.log
+
+		//替换,针对整行
+		$>sed -i '1,2ckkk' 1.log
+
+		//替换,针对特定字符串,用how替换掉hello
+		$>sed -i 's/hello/how/g' 1.log
+
+
+修改手机端生成程序的时间片为系统当下时间，不是随机数生成
+--------------------------------------------------------
+	1.appPageLog.setCreatedAtMs(System.currentTimeMillis());
+	hive>load data inpath '/user/centos/applogs/page/201706/26/1853' into table applogs.ext_page_logs partition(ym='201706',day='26',hm='1853')
+
+
+在centos上部署tomcat
+-----------------------
+	1.下载安装
+		apache-tomcat-7.0.72.tar.gz
+
+	2.tar开
+		tar -xzvf ~/Downloads/apache-tomcat-7.0.72.tar.gz -C /soft
+
+	3.软连接
+		$>ln -s /soft/apache-tomcat-7.0.72 /soft/tomcat
+
+
+将idea中的web项目导出war包
+---------------------------
+	1.需要修改pom.xml
+		<?xml version="1.0" encoding="UTF-8"?>
+		<project xmlns="http://maven.apache.org/POM/4.0.0"
+				 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+				 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+			<modelVersion>4.0.0</modelVersion>
+
+			<groupId>com.it18zhang</groupId>
+			<artifactId>app-logs-collect-web</artifactId>
+			<version>1.0-SNAPSHOT</version>
+			<packaging>war</packaging>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<version>2.12.4</version>
+						<configuration>
+							<skipTests>true</skipTests>
+						</configuration>
+					</plugin>
+					<plugin>
+						<artifactId>maven-war-plugin</artifactId>
+						<version>2.6</version>
+						<configuration>
+							<warSourceDirectory>web</warSourceDirectory>
+							<failOnMissingWebXml>false</failOnMissingWebXml>
+							<excludes>css/*,images/*,js/*,png/*,phone/*</excludes>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+			<dependencies>
+				<dependency>
+					<groupId>junit</groupId>
+					<artifactId>junit</artifactId>
+					<version>4.11</version>
+				</dependency>
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-core</artifactId>
+					<version>2.8.8</version>
+				</dependency>
+				<dependency>
+					<groupId>com.fasterxml.jackson.core</groupId>
+					<artifactId>jackson-databind</artifactId>
+					<version>2.8.3</version>
+				</dependency>
+
+				<dependency>
+					<groupId>com.maxmind.db</groupId>
+					<artifactId>maxmind-db</artifactId>
+					<version>1.0.0</version>
+				</dependency>
+
+				<dependency>
+					<groupId>org.springframework</groupId>
+					<artifactId>spring-webmvc</artifactId>
+					<version>4.3.5.RELEASE</version>
+				</dependency>
+				<dependency>
+					<groupId>javax.servlet</groupId>
+					<artifactId>servlet-api</artifactId>
+					<version>2.5</version>
+				</dependency>
+				<dependency>
+					<groupId>com.alibaba</groupId>
+					<artifactId>fastjson</artifactId>
+					<version>1.2.24</version>
+				</dependency>
+				<dependency>
+					<groupId>com.maxmind.db</groupId>
+					<artifactId>maxmind-db</artifactId>
+					<version>1.0.0</version>
+				</dependency>
+				<dependency>
+					<groupId>org.apache.kafka</groupId>
+					<artifactId>kafka_2.11</artifactId>
+					<version>0.10.0.1</version>
+				</dependency>
+				<!-- 公共模块 -->
+				<dependency>
+					<groupId>com.it18zhang</groupId>
+					<artifactId>app-analyze-common</artifactId>
+					<version>1.0-SNAPSHOT</version>
+				</dependency>
+			</dependencies>
+		</project>
+
+	2.再次安装common模块，common模块重新打包放到.m2仓库下。
+
+	3.执行打包命令,生成war包.(最好重命名app-web.war)
+		app-logs-collect-web-1.0-SNAPSHOT.war --> app-web.war
+	4.复制war文件到centos下${tomcat}/webapps
+
+	5.启动tomcat
+		$>tomcat/bin/startup.sh
+
+	6.验证
+		$>netstat -anop | grep 8080
+
+	7.修改手机程序连接服务器的地址。
+		UploadUtil.java
+		22行:URL url = new URL("http://s201:8080/app-web/coll/index");
+			http://s201:8080/app-web/coll/index
+
+
+============================== 开始计算各种指标 [写sql 统计]=======================================
+
+通过hive查询指定app的用户数
+------------------------------
+	$hive>select count(distinct deviceid) from ext_startup_logs where appid = 'xxx' ;
+
+新增用户
+------------------------------
+	今日新增用户数。
+	select
+
+createdatms : 123455
+createdatms : 123455
+createdatms : 123455
+createdatms : 123455
+createdatms : 123455
+	select min(createdatms) from ext_startup_logs where appid = 'sdk34734' group by deviceid
+
+
+Calender :
+--------------
+
+自定义hive的日期函数，提取天起始时刻和结束时刻，结束时刻是下一天的起始时刻
+--------------------------
+	1.编写DayStartUDF和DayEndUDF函数
+		package com.it18zhang.applogs.udf;
+
+		import org.apache.hadoop.hive.ql.exec.Description;
+		import org.apache.hadoop.hive.ql.exec.UDF;
+		import org.apache.hadoop.hive.ql.udf.UDFType;
+
+		import java.text.ParseException;
+		import java.text.SimpleDateFormat;
+		import java.util.Date;
+
+		/**
+		 * 计算day起始毫秒数
+		 */
+		@Description(name = "udf_getStartay",
+				value = "getStartInDay",
+				extended = "udf() ; udf('2017/06/27 02:03:04') ; udf('2017-06-27 02-03-04','yyyy-MM-dd HH-mm-ss')")
+		@UDFType(deterministic = true, stateful = false)
+		public class DayStartUDF extends UDF {
+
+			/**
+			 * 计算现在的起始时刻(毫秒数)
+			 */
+			public long evaluate() throws ParseException {
+				return evaluate(new Date());
+			}
+
+			/**
+			 * 计算某天的结束时刻(毫秒数)
+			 */
+			public long evaluate(Date d) throws ParseException {
+				return DateUtil.getZeroDate(d).getTime();
+			}
+
+			/**
+			 * 计算某天的起始时刻(毫秒数)
+			 */
+			public long evaluate(String dateStr)  {
+				try {
+					SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+					Date d = sdf.parse(dateStr);
+					return evaluate(d);
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+				return 0 ;
+			}
+
+			/**
+			 * 计算某天的起始时刻(毫秒数)
+			 */
+			public long evaluate(String dateStr,String fmt)  {
+				try {
+					SimpleDateFormat sdf = new SimpleDateFormat(fmt);
+					Date d = sdf.parse(dateStr);
+					return evaluate(d);
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+				return 0 ;
+			}
+		}
+	2.导入jar包
+
+	3.部署到hive的lib下。
+
+	4.添加jar到hive的classpath
+		$hive>add jar app-logs-hive-1.0-SNAPSHOT.jar;
+
+	5.注册临时函数
+		$hive>create temporary function getstartday AS 'com.it18zhang.applogs.udf.DayStartUDF';
+		$hive>create temporary function getendday AS 'com.it18zhang.applogs.udf.DayEndUDF';
+
+	6. 函数使用示例
+		$hive> select getstartday();
+		$hive> select getstartday("2019/01/3 12:15:15");
+
+    查看函数functionName
+		desc function extended default.functionName;

@@ -89,4 +89,20 @@ public class AppBaseLog implements Serializable {
     public void setDeviceStyle(String deviceStyle) {
         this.deviceStyle = deviceStyle;
     }
+    
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("AppBaseLog{");
+        sb.append("createdAtMs=").append(createdAtMs);
+        sb.append(", appId='").append(appId).append('\'');
+        sb.append(", tenantId='").append(tenantId).append('\'');
+        sb.append(", deviceId='").append(deviceId).append('\'');
+        sb.append(", appVersion='").append(appVersion).append('\'');
+        sb.append(", appChannel='").append(appChannel).append('\'');
+        sb.append(", appPlatform='").append(appPlatform).append('\'');
+        sb.append(", osType='").append(osType).append('\'');
+        sb.append(", deviceStyle='").append(deviceStyle).append('\'');
+        sb.append('}');
+        return sb.toString();
+    }
 }
